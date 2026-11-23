@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+:root {
+  --ucm-navy: #0A1931;
+  --ucm-deep: #081226;
+  --ucm-blue: #15367A;
+  --ucm-cyan: #00A9E0;
+  --ucm-cyan-bright: #00C6FF;
+  --ucm-canvas: #F1F6FA;
+  --ucm-green: #0F9D75;
+  --ucm-amber: #D9941E;
+}
+
+@layer base {
+  body {
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: var(--ucm-canvas);
+    color: var(--ucm-navy);
+  }
+
+  ::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+    border-radius: 9999px;
+  }
+}
+
+.ucm-hero-gradient {
+  background: linear-gradient(135deg, #0A1B4D 0%, #10468C 52%, #00A9E0 100%);
+}
+
+.ucm-btn-gradient {
+  background: linear-gradient(90deg, #132C6E 0%, #0E60A8 55%, #00A9E0 100%);
+}
+.ucm-btn-gradient:hover {
+  background: linear-gradient(90deg, #0E2258 0%, #0B5291 55%, #0097CA 100%);
+}
+
+.ucm-btn-gradient-pc {
+  background: linear-gradient(90deg, #00A9E0 0%, #0E60A8 50%, #152E6E 100%);
+}
+.ucm-btn-gradient-pc:hover {
+  background: linear-gradient(90deg, #0095C7 0%, #0B5291 50%, #0F2357 100%);
+}
+
+.ucm-banner-gradient {
+  background: linear-gradient(90deg, #154C8B 0%, #0D8AC4 55%, #16B4E4 100%);
+}
+
+.ucm-staff-dark {
+  background: radial-gradient(circle at 18% 12%, #0F264A 0%, #081226 52%, #050C1A 100%);
+}

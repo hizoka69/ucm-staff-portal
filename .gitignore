@@ -1,0 +1,22 @@
+.env
+backend/.env
+frontend/.env
+frontend/.env.local
+backend/wallet/
+
+# Python / Backend
+backend/.venv/
+.venv/
+__pycache__/
+*.py[cod]
+backend/uploads/avatars/*
+!backend/uploads/avatars/.gitkeep
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Sistema / Editor
+.DS_Store
+Thumbs.db
+.vscode/
