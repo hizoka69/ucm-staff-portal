@@ -262,6 +262,7 @@ export default function AdminPanel() {
   const [selectedStaffActId, setSelectedStaffActId] = useState(null);
   const [actPostulaciones, setActPostulaciones] = useState([]);
   const [manualAssignUserId, setManualAssignUserId] = useState('');
+  const [promotingWaitlist, setPromotingWaitlist] = useState(false);
 
   // Validación de horas
   const [valActId, setValActId] = useState(null);
@@ -708,6 +709,21 @@ const handleRegionChange = (region) => {
       await loadStaffActPostulaciones(selectedStaffActId);
     } catch (err) {
       showToast('error', getErrorMessage(err));
+    }
+  };
+
+  const handlePromoverListaEspera = async () => {
+    if (!selectedStaffActId) return;
+    setPromotingWaitlist(true);
+    try {
+      const res = await api.post(`/gestores/lista-espera/promover/${selectedStaffActId}`);
+      showToast('success', res.data.message);
+      await loadDashboardData();
+      await loadStaffActPostulaciones(selectedStaffActId);
+    } catch (err) {
+      showToast('error', getErrorMessage(err, 'No se pudo promover la lista de espera.'));
+    } finally {
+      setPromotingWaitlist(false);
     }
   };
 
@@ -1748,6 +1764,24 @@ const handleRegionChange = (region) => {
                     {/* Móvil: Lista de Espera */}
                     {mobileStaffSubTab === 'espera' && (
                       <div className="space-y-3">
+                        {esperaDeActividad.length > 0 && selectedStaffAct && (
+                          <button
+                            type="button"
+                            disabled={promotingWaitlist || selectedStaffAct.cupos_disponibles <= 0}
+                            onClick={handlePromoverListaEspera}
+                            className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold transition ${
+                              selectedStaffAct.cupos_disponibles > 0
+                                ? 'bg-[#0F9D75] hover:bg-[#0C8260] text-white shadow-xs cursor-pointer'
+                                : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                            }`}
+                          >
+                            {promotingWaitlist
+                              ? 'Promoviendo...'
+                              : selectedStaffAct.cupos_disponibles > 0
+                                ? `Promover por orden de llegada (${selectedStaffAct.cupos_disponibles} cupo(s) libre(s))`
+                                : 'Sin cupos libres para promoción automática'}
+                          </button>
+                        )}
                         {esperaDeActividad.length === 0 ? (
                           <div className="bg-white rounded-2xl p-6 text-center text-xs text-slate-400 border border-slate-200">
                             No hay solicitudes pendientes en lista de espera para esta actividad.
@@ -2083,6 +2117,24 @@ const handleRegionChange = (region) => {
                       </div>
 
                       <div className="p-5 space-y-3">
+                        {esperaDeActividad.length > 0 && selectedStaffAct && (
+                          <button
+                            type="button"
+                            disabled={promotingWaitlist || selectedStaffAct.cupos_disponibles <= 0}
+                            onClick={handlePromoverListaEspera}
+                            className={`w-full py-2 px-3 rounded-xl text-xs font-bold transition ${
+                              selectedStaffAct.cupos_disponibles > 0
+                                ? 'bg-[#0F9D75] hover:bg-[#0C8260] text-white shadow-xs cursor-pointer'
+                                : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                            }`}
+                          >
+                            {promotingWaitlist
+                              ? 'Promoviendo desde lista de espera...'
+                              : selectedStaffAct.cupos_disponibles > 0
+                                ? `Promover por orden de llegada (${selectedStaffAct.cupos_disponibles} cupo(s) libre(s))`
+                                : 'Libera un cupo para promover automáticamente'}
+                          </button>
+                        )}
                         {esperaDeActividad.length === 0 ? (
                           <p className="text-xs text-slate-400 text-center py-3">
                             No hay estudiantes esperando cupo en esta actividad.

@@ -384,6 +384,26 @@ def resolver_lista_espera(
         handle_oracle_error(exc)
 
 
+@router.post("/lista-espera/promover/{id_actividad}")
+def promover_lista_espera(
+    id_actividad: int,
+    current_user: dict = Depends(only_admin),
+):
+    promovidos = call_proc_id_out(
+        "pkg_gest_lista_espera.promover_lista_espera",
+        [id_actividad, current_user["id_usuario"]],
+    )
+    return {
+        "id_actividad": id_actividad,
+        "promovidos": promovidos,
+        "message": (
+            f"Se promovió {promovidos} Staff desde la lista de espera por orden de llegada."
+            if promovidos == 1
+            else f"Se promovieron {promovidos} Staff desde la lista de espera por orden de llegada."
+        ),
+    }
+
+
 # ============================================================================
 # GESTOR 5: VALIDACIÓN DE ASISTENCIA/HORAS Y AUDITORÍA
 # ============================================================================

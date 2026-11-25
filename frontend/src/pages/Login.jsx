@@ -5,7 +5,7 @@ import { getErrorMessage } from '../api/client';
 import UcmLogo from '../components/UcmLogo';
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, sessionNotice, clearSessionNotice } = useAuth();
 
   const [identificador, setIdentificador] = useState('');
   const [password, setPassword] = useState('');
@@ -16,6 +16,7 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    clearSessionNotice();
     if (!identificador.trim() || !password) {
       setError('Ingresa tu RUT o correo UCM y tu contraseña.');
       return;
@@ -128,6 +129,13 @@ export default function Login() {
               Ingresa con tus credenciales institucionales
             </p>
           </div>
+
+          {sessionNotice && !error && (
+            <div className="mb-5 p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-xs sm:text-sm flex items-center gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{sessionNotice}</span>
+            </div>
+          )}
 
           {error && (
             <div className="mb-5 p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm flex items-center gap-2.5">

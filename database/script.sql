@@ -2148,6 +2148,11 @@ CREATE OR REPLACE PACKAGE pkg_gest_lista_espera AS
         p_id_admin           IN NUMBER,
         p_id_postulacion_out OUT NUMBER
     );
+    PROCEDURE promover_lista_espera(
+        p_id_actividad   IN  NUMBER,
+        p_id_admin       IN  NUMBER,
+        p_promovidos_out OUT NUMBER
+    );
 END pkg_gest_lista_espera;
 /
 
@@ -2245,6 +2250,132 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_lista_espera AS
             ROLLBACK;
             RAISE_APPLICATION_ERROR(-20232, 'Registro de lista de espera no encontrado.');
         WHEN OTHERS THEN
+            ROLLBACK;
+            RAISE;
+    END;
+
+    PROCEDURE promover_lista_espera(
+        p_id_actividad   IN  NUMBER,
+        p_id_admin       IN  NUMBER,
+        p_promovidos_out OUT NUMBER
+    ) IS
+        CURSOR c_espera(cp_id_act NUMBER) IS
+            SELECT id_lista_espera, id_usuario
+              FROM lista_espera
+             WHERE id_actividad  = cp_id_act
+               AND estado_espera = 'PENDIENTE'
+             ORDER BY fecha_ingreso ASC
+               FOR UPDATE OF estado_espera, resuelto_por, fecha_resolucion;
+
+        v_rec          c_espera%ROWTYPE;
+        v_rol_admin    NUMBER;
+        v_cupos_max    NUMBER;
+        v_ocupados     NUMBER;
+        v_cupos_libres NUMBER;
+        v_activo_usr   CHAR(1);
+        v_post_id      NUMBER;
+        v_post_estado  VARCHAR2(20);
+        v_ahora_chile  TIMESTAMP;
+    BEGIN
+        SELECT id_rol INTO v_rol_admin FROM usuarios WHERE id_usuario = p_id_admin;
+        IF v_rol_admin <> 2 THEN
+            RAISE_APPLICATION_ERROR(-20233, 'Solo un ADMIN puede promover la lista de espera.');
+        END IF;
+
+        SELECT cupos_maximos INTO v_cupos_max
+          FROM actividades
+         WHERE id_actividad = p_id_actividad
+           FOR UPDATE OF cupos_maximos;
+
+        SELECT COUNT(*) INTO v_ocupados
+          FROM postulaciones
+         WHERE id_actividad = p_id_actividad
+           AND estado_postulacion IN ('CONFIRMADA', 'ASIGNADA');
+
+        v_cupos_libres   := GREATEST(v_cupos_max - v_ocupados, 0);
+        p_promovidos_out := 0;
+
+        IF v_cupos_libres = 0 THEN
+            RAISE_APPLICATION_ERROR(-20234, 'No hay cupos disponibles en esta actividad para promover desde la lista de espera.');
+        END IF;
+
+        v_ahora_chile := CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP);
+
+        OPEN c_espera(p_id_actividad);
+        LOOP
+            EXIT WHEN p_promovidos_out >= v_cupos_libres;
+            FETCH c_espera INTO v_rec;
+            EXIT WHEN c_espera%NOTFOUND;
+
+            SELECT activo INTO v_activo_usr
+              FROM usuarios
+             WHERE id_usuario = v_rec.id_usuario;
+
+            IF v_activo_usr = 'S' THEN
+                BEGIN
+                    SELECT id_postulacion, estado_postulacion
+                      INTO v_post_id, v_post_estado
+                      FROM postulaciones
+                     WHERE id_actividad = p_id_actividad
+                       AND id_usuario   = v_rec.id_usuario;
+
+                    IF v_post_estado IN ('CONFIRMADA', 'ASIGNADA') THEN
+                        UPDATE lista_espera
+                           SET estado_espera    = 'ACEPTADA',
+                               resuelto_por     = p_id_admin,
+                               fecha_resolucion = v_ahora_chile
+                         WHERE CURRENT OF c_espera;
+                    ELSE
+                        UPDATE postulaciones
+                           SET estado_postulacion = 'ASIGNADA',
+                               asignado_por       = p_id_admin,
+                               fecha_postulacion  = v_ahora_chile
+                         WHERE id_postulacion = v_post_id;
+
+                        UPDATE lista_espera
+                           SET estado_espera    = 'ACEPTADA',
+                               resuelto_por     = p_id_admin,
+                               fecha_resolucion = v_ahora_chile
+                         WHERE CURRENT OF c_espera;
+
+                        p_promovidos_out := p_promovidos_out + 1;
+                    END IF;
+                EXCEPTION
+                    WHEN NO_DATA_FOUND THEN
+                        INSERT INTO postulaciones (
+                            id_postulacion, id_actividad, id_usuario, estado_postulacion, asignado_por
+                        ) VALUES (
+                            seq_postulaciones.NEXTVAL, p_id_actividad, v_rec.id_usuario, 'ASIGNADA', p_id_admin
+                        );
+
+                        UPDATE lista_espera
+                           SET estado_espera    = 'ACEPTADA',
+                               resuelto_por     = p_id_admin,
+                               fecha_resolucion = v_ahora_chile
+                         WHERE CURRENT OF c_espera;
+
+                        p_promovidos_out := p_promovidos_out + 1;
+                END;
+            END IF;
+        END LOOP;
+        CLOSE c_espera;
+
+        IF p_promovidos_out = 0 THEN
+            RAISE_APPLICATION_ERROR(-20235, 'No hay solicitudes pendientes elegibles en la lista de espera.');
+        END IF;
+
+        COMMIT;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            IF c_espera%ISOPEN THEN
+                CLOSE c_espera;
+            END IF;
+            ROLLBACK;
+            RAISE_APPLICATION_ERROR(-20236, 'Actividad o administrador no encontrado.');
+        WHEN OTHERS THEN
+            IF c_espera%ISOPEN THEN
+                CLOSE c_espera;
+            END IF;
             ROLLBACK;
             RAISE;
     END;
