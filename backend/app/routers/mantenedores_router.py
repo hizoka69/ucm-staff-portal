@@ -83,6 +83,7 @@ class ActividadIn(BaseModel):
     cantidad_horas: float = Field(..., gt=0, le=24)
     cupos_maximos: int = Field(..., gt=0)
     fecha_pub_programada: Optional[datetime] = None
+    horas_cierre_postulacion: float = Field(default=10, ge=0, le=720)
 
 
 # ============================================================================
@@ -492,6 +493,7 @@ def crear_actividad(payload: ActividadIn, current_user: dict = Depends(only_admi
             payload.cupos_maximos,
             _naive_dt(payload.fecha_pub_programada),
             current_user["id_usuario"],
+            payload.horas_cierre_postulacion,
         ],
     )
     return {"id_actividad": new_id, "message": "Actividad creada correctamente."}
@@ -513,6 +515,7 @@ def actualizar_actividad(id_actividad: int, payload: ActividadIn, _=Depends(only
             payload.cantidad_horas,
             payload.cupos_maximos,
             _naive_dt(payload.fecha_pub_programada),
+            payload.horas_cierre_postulacion,
         ],
     )
     return {"message": "Actividad actualizada correctamente."}

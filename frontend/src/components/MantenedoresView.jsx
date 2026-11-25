@@ -184,6 +184,7 @@ const CATALOGS = [
       { key: 'hora_inicio', label: 'Hora' },
       { key: 'cantidad_horas', label: 'Hrs' },
       { key: 'cupos_maximos', label: 'Cupos' },
+      { key: 'horas_cierre_postulacion', label: 'Cierre (hrs antes)' },
     ],
     fields: [
       { name: 'titulo', label: 'Título', type: 'text', required: true },
@@ -195,6 +196,7 @@ const CATALOGS = [
       { name: 'hora_inicio', label: 'Hora Inicio (HH:MM)', type: 'time', defaultValue: '09:00', required: true },
       { name: 'cantidad_horas', label: 'Cantidad de Horas', type: 'number', step: '0.5', defaultValue: 4, required: true },
       { name: 'cupos_maximos', label: 'Cupos Máximos', type: 'number', defaultValue: 6, required: true },
+      { name: 'horas_cierre_postulacion', label: 'Cierre Postulación (hrs antes del inicio)', type: 'number', step: '1', defaultValue: 10, required: true },
     ],
   },
 ];

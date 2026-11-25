@@ -281,6 +281,7 @@ export default function AdminPanel() {
   const [formHoraInicio, setFormHoraInicio] = useState('09:00');
   const [formHoras, setFormHoras] = useState(4);
   const [formCupos, setFormCupos] = useState(6);
+  const [formHorasCierre, setFormHorasCierre] = useState(10);
   const [useNewPlace, setUseNewPlace] = useState(false);
   const [formUbicacionId, setFormUbicacionId] = useState('');
   const [newPlaceRegion, setNewPlaceRegion] = useState('');
@@ -632,6 +633,7 @@ const handleRegionChange = (region) => {
         cantidad_horas: Number(formHoras),
         cupos_maximos: Number(formCupos),
         fecha_pub_programada: mode === 'PROGRAMADA' ? `${fechaProgramada}:00`.slice(0, 19) : null,
+        horas_cierre_postulacion: Number(formHorasCierre),
       };
 
       await api.post('/mantenedores/actividades', payload);
@@ -644,6 +646,7 @@ const handleRegionChange = (region) => {
 
       setFormTitulo('');
       setFormDesc('');
+      setFormHorasCierre(10);
       setNewPlaceNombre('');
       setNewPlaceDir('');
       setNewPlaceMaps('');
@@ -1520,6 +1523,49 @@ const handleRegionChange = (region) => {
                               </button>
                             </div>
                           </div>
+                        </div>
+
+                        {/* Cierre automático de postulaciones */}
+                        <div>
+                          <label className="block text-xs font-bold text-slate-600 mb-1">
+                            Cierre de postulaciones (horas antes del inicio)
+                          </label>
+                          <div className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-xl bg-[#F7FAFD] border border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => setFormHorasCierre((h) => Math.max(0, Number(h) - 1))}
+                              className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:border-[#00A9E0] cursor-pointer shrink-0"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                min="0"
+                                max="720"
+                                step="1"
+                                value={formHorasCierre}
+                                onChange={(e) => {
+                                  const v = Math.max(0, Math.min(720, Number(e.target.value) || 0));
+                                  setFormHorasCierre(v);
+                                }}
+                                className="w-16 text-center text-sm font-extrabold text-[#0A1931] bg-transparent outline-none"
+                              />
+                              <span className="text-xs font-semibold text-slate-500">hrs antes</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setFormHorasCierre((h) => Math.min(720, Number(h) + 1))}
+                              className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:border-[#00A9E0] cursor-pointer shrink-0"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            {Number(formHorasCierre) === 0
+                              ? 'Las postulaciones se cerrarán a la hora exacta de inicio.'
+                              : `Las postulaciones se cerrarán automáticamente ${formHorasCierre}h antes del comienzo (hora oficial Chile).`}
+                          </p>
                         </div>
 
                         <p className="text-[11px] text-slate-500">

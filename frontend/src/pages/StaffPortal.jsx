@@ -60,6 +60,16 @@ function calcHoraFin(horaInicio, horas) {
   return `${horaInicio} - ${endH}:${endM}`;
 }
 
+function formatFechaCierre(raw) {
+  if (!raw) return null;
+  const s = String(raw).replace('T', ' ').slice(0, 16);
+  const [datePart, timePart] = s.split(' ');
+  if (!datePart || !timePart) return s;
+  const [, m, d] = datePart.split('-');
+  if (!m || !d) return s;
+  return `${d}/${m} ${timePart}`;
+}
+
 function normalizeCategory(nombreTipo = '') {
   const t = nombreTipo.toLowerCase();
   if (t.includes('feria')) return 'Feria';
@@ -356,6 +366,14 @@ export default function StaffPortal() {
         style: 'bg-amber-50 border border-amber-300 text-amber-800',
       };
     }
+    if (act.postulacion_cerrada === 'S') {
+      return {
+        label: 'Postulación cerrada',
+        disabled: true,
+        isClosed: true,
+        style: 'bg-slate-100 border border-slate-300 text-slate-500',
+      };
+    }
     const isFull = act.cupos_disponibles <= 0;
     return {
       label: isFull ? 'Lista de espera' : 'Postular',
@@ -611,6 +629,7 @@ export default function StaffPortal() {
                 {filteredActividades.map((act) => {
                   const vis = getTypeVisual(act.nombre_tipo);
                   const isFull = act.cupos_disponibles <= 0;
+                  const isClosed = act.postulacion_cerrada === 'S';
                   return (
                     <div
                       key={act.id_actividad}
@@ -620,7 +639,7 @@ export default function StaffPortal() {
                       }}
                       className="relative rounded-2xl bg-white border border-slate-200/90 shadow-xs overflow-hidden active:scale-[0.99] transition cursor-pointer"
                     >
-                      <div className={`h-1.5 w-full ${isFull ? 'bg-amber-400' : vis.accentBar}`} />
+                      <div className={`h-1.5 w-full ${isClosed ? 'bg-slate-300' : isFull ? 'bg-amber-400' : vis.accentBar}`} />
                       <div className="p-4">
                         <div className="flex items-center justify-between gap-2 mb-2.5">
                           <span
@@ -637,6 +656,10 @@ export default function StaffPortal() {
                             <span className="px-2.5 py-0.5 rounded-full bg-amber-50 border border-amber-300 text-amber-800 text-[11px] font-bold">
                               En espera
                             </span>
+                          ) : isClosed ? (
+                            <span className="px-2.5 py-0.5 rounded-full bg-red-50 border border-red-200 text-red-700 text-[11px] font-bold">
+                              Cerrada
+                            </span>
                           ) : (
                             <span className="text-[11px] font-medium text-slate-400">
                               {formatFechaLarga(act.fecha_actividad)}
@@ -649,7 +672,11 @@ export default function StaffPortal() {
                         </h3>
 
                         <div className="mt-3 flex items-center justify-between gap-2">
-                          {isFull ? (
+                          {isClosed ? (
+                            <span className="inline-flex items-center px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-xs font-semibold">
+                              Postulación cerrada ({formatFechaCierre(act.fecha_cierre_postulacion)})
+                            </span>
+                          ) : isFull ? (
                             <span className="inline-flex items-center px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold">
                               Cupos llenos · Lista de espera
                             </span>
@@ -730,6 +757,26 @@ export default function StaffPortal() {
                                 {act.cantidad_horas} hrs ({act.hora_inicio})
                               </span>
                             </div>
+                            {act.fecha_cierre_postulacion && (
+                              <div className="flex items-center gap-2">
+                                <AlertCircle
+                                  className={`w-3.5 h-3.5 shrink-0 ${
+                                    act.postulacion_cerrada === 'S' ? 'text-red-500' : 'text-slate-400'
+                                  }`}
+                                />
+                                <span
+                                  className={
+                                    act.postulacion_cerrada === 'S'
+                                      ? 'text-red-600 font-semibold'
+                                      : 'text-slate-500'
+                                  }
+                                >
+                                  {act.postulacion_cerrada === 'S'
+                                    ? `Cerró: ${formatFechaCierre(act.fecha_cierre_postulacion)}`
+                                    : `Cierre postul.: ${formatFechaCierre(act.fecha_cierre_postulacion)}`}
+                                </span>
+                              </div>
+                            )}
                           </div>
 
                           <div className="mb-4">
@@ -818,6 +865,24 @@ export default function StaffPortal() {
                         {selectedAct.cupos_maximos} disponibles
                       </span>
                     </div>
+                    {selectedAct.fecha_cierre_postulacion && (
+                      <div className="flex items-center gap-3">
+                        <AlertCircle
+                          className={`w-4 h-4 shrink-0 ${
+                            selectedAct.postulacion_cerrada === 'S' ? 'text-red-500' : 'text-[#00A9E0]'
+                          }`}
+                        />
+                        <span className={selectedAct.postulacion_cerrada === 'S' ? 'text-red-700 font-semibold' : ''}>
+                          <strong>
+                            {selectedAct.postulacion_cerrada === 'S'
+                              ? 'Postulación cerrada:'
+                              : 'Cierre postulación:'}
+                          </strong>{' '}
+                          {formatFechaCierre(selectedAct.fecha_cierre_postulacion)} (
+                          {selectedAct.horas_cierre_postulacion ?? 10}h antes)
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Vista previa Google Maps */}
@@ -936,6 +1001,22 @@ export default function StaffPortal() {
                       Cupos: {selectedAct.cupos_disponibles}/{selectedAct.cupos_maximos} disponibles
                     </span>
                   </div>
+                  {selectedAct.fecha_cierre_postulacion && (
+                    <div className="flex items-center gap-2.5">
+                      <AlertCircle
+                        className={`w-4 h-4 shrink-0 ${
+                          selectedAct.postulacion_cerrada === 'S' ? 'text-red-500' : 'text-[#00A9E0]'
+                        }`}
+                      />
+                      <span className={selectedAct.postulacion_cerrada === 'S' ? 'text-red-700 font-semibold' : ''}>
+                        {selectedAct.postulacion_cerrada === 'S'
+                          ? 'Postulación cerrada:'
+                          : 'Cierre postulación:'}{' '}
+                        {formatFechaCierre(selectedAct.fecha_cierre_postulacion)} (
+                        {selectedAct.horas_cierre_postulacion ?? 10}h antes)
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {selectedAct.url_google_maps && (

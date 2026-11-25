@@ -1,29 +1,18 @@
--- ============================================================================
--- SISTEMA DE GESTIÓN DE STAFF UNIVERSITARIO - UCM
--- Motor: Oracle Database 21c XE (XEPDB1) | Esquema: UCM_STAFF_BD
--- Archivo único unificado: database/script.sql
--- ============================================================================
--- BLOQUE 1: LIMPIEZA + DDL (16 TABLAS 3FN) + 15 SECUENCIAS + 9 TRIGGERS
--- ============================================================================
+-- Sistema de Gestión de Staff Universitario - UCM (Esquema: UCM_STAFF_BD)
 
 SET DEFINE OFF;
 SET SERVEROUTPUT ON;
 
--- ----------------------------------------------------------------------------
--- SECCIÓN 1: LIMPIEZA SEGURA (PERMITE RE-EJECUTAR EL SCRIPT CON F5)
--- ----------------------------------------------------------------------------
+-- 1. Limpieza de objetos previos
 BEGIN
-    -- Eliminar packages previos si existen
     FOR p IN (SELECT object_name FROM user_objects WHERE object_type = 'PACKAGE') LOOP
         EXECUTE IMMEDIATE 'DROP PACKAGE ' || p.object_name;
     END LOOP;
 
-    -- Eliminar tablas previas en cascada (borra constraints, índices y triggers)
     FOR t IN (SELECT table_name FROM user_tables) LOOP
         EXECUTE IMMEDIATE 'DROP TABLE ' || t.table_name || ' CASCADE CONSTRAINTS PURGE';
     END LOOP;
 
-    -- Eliminar secuencias previas
     FOR s IN (SELECT sequence_name FROM user_sequences) LOOP
         EXECUTE IMMEDIATE 'DROP SEQUENCE ' || s.sequence_name;
     END LOOP;
@@ -32,11 +21,8 @@ BEGIN
 END;
 /
 
--- ----------------------------------------------------------------------------
--- SECCIÓN 2: DDL - CREACIÓN DE LAS 16 TABLAS EN 3FN (ORDEN PADRE -> HIJO)
--- ----------------------------------------------------------------------------
+-- 2. Creación de tablas e índices
 
--- 1. ROLES (1=SUPERADMIN, 2=ADMIN, 3=STAFF)
 CREATE TABLE roles (
     id_rol          NUMBER          NOT NULL,
     nombre_rol      VARCHAR2(50)    NOT NULL,
@@ -45,7 +31,6 @@ CREATE TABLE roles (
     CONSTRAINT uq_roles_nombre UNIQUE (nombre_rol)
 );
 
--- 2. FACULTADES
 CREATE TABLE facultades (
     id_facultad     NUMBER          NOT NULL,
     nombre_facultad VARCHAR2(120)   NOT NULL,
@@ -55,7 +40,6 @@ CREATE TABLE facultades (
     CONSTRAINT uq_facultades_siglas UNIQUE (siglas)
 );
 
--- 3. CARRERAS
 CREATE TABLE carreras (
     id_carrera      NUMBER          NOT NULL,
     id_facultad     NUMBER          NOT NULL,
@@ -65,7 +49,6 @@ CREATE TABLE carreras (
     CONSTRAINT fk_carreras_facultad FOREIGN KEY (id_facultad) REFERENCES facultades (id_facultad)
 );
 
--- 4. REGIONES
 CREATE TABLE regiones (
     id_region       NUMBER          NOT NULL,
     nombre_region   VARCHAR2(80)    NOT NULL,
@@ -75,7 +58,6 @@ CREATE TABLE regiones (
     CONSTRAINT uq_regiones_codigo UNIQUE (codigo_romano)
 );
 
--- 5. CIUDADES
 CREATE TABLE ciudades (
     id_ciudad       NUMBER          NOT NULL,
     id_region       NUMBER          NOT NULL,
@@ -85,7 +67,6 @@ CREATE TABLE ciudades (
     CONSTRAINT fk_ciudades_region FOREIGN KEY (id_region) REFERENCES regiones (id_region)
 );
 
--- 6. UBICACIONES
 CREATE TABLE ubicaciones (
     id_ubicacion    NUMBER          NOT NULL,
     id_ciudad       NUMBER          NOT NULL,
@@ -96,7 +77,6 @@ CREATE TABLE ubicaciones (
     CONSTRAINT fk_ubicaciones_ciudad FOREIGN KEY (id_ciudad) REFERENCES ciudades (id_ciudad)
 );
 
--- 7. TIPOS_ACTIVIDAD
 CREATE TABLE tipos_actividad (
     id_tipo_actividad NUMBER        NOT NULL,
     nombre_tipo       VARCHAR2(30)  NOT NULL,
@@ -106,7 +86,6 @@ CREATE TABLE tipos_actividad (
     CONSTRAINT ck_tipos_act_color CHECK (REGEXP_LIKE(color_hex, '^#[0-9A-Fa-f]{6}$'))
 );
 
--- 8. ESTADOS_ACTIVIDAD
 CREATE TABLE estados_actividad (
     id_estado_actividad NUMBER       NOT NULL,
     nombre_estado       VARCHAR2(30) NOT NULL,
@@ -115,7 +94,6 @@ CREATE TABLE estados_actividad (
     CONSTRAINT uq_estados_act_nombre UNIQUE (nombre_estado)
 );
 
--- 9. USUARIOS (Relación recursiva creado_por)
 CREATE TABLE usuarios (
     id_usuario         NUMBER          NOT NULL,
     rut                VARCHAR2(12)    NOT NULL,
@@ -128,7 +106,7 @@ CREATE TABLE usuarios (
     debe_cambiar_clave CHAR(1)         DEFAULT 'S' NOT NULL,
     activo             CHAR(1)         DEFAULT 'S' NOT NULL,
     creado_por         NUMBER,
-    fecha_creacion     TIMESTAMP       DEFAULT SYSTIMESTAMP NOT NULL,
+    fecha_creacion     TIMESTAMP       DEFAULT CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) NOT NULL,
     CONSTRAINT pk_usuarios PRIMARY KEY (id_usuario),
     CONSTRAINT uq_usuarios_rut UNIQUE (rut),
     CONSTRAINT uq_usuarios_correo UNIQUE (correo),
@@ -138,11 +116,9 @@ CREATE TABLE usuarios (
     CONSTRAINT ck_usuarios_activo CHECK (activo IN ('S', 'N'))
 );
 
--- Restricción de negocio a nivel de índice: garantiza MÁXIMO 1 SUPERADMIN (id_rol = 1)
 CREATE UNIQUE INDEX uq_unico_superadmin
     ON usuarios (CASE WHEN id_rol = 1 THEN 1 END);
 
--- 10. PERFILES_STAFF (Relación 1 a 0..1 identificadora con USUARIOS)
 CREATE TABLE perfiles_staff (
     id_usuario            NUMBER        NOT NULL,
     id_carrera            NUMBER        NOT NULL,
@@ -156,7 +132,6 @@ CREATE TABLE perfiles_staff (
     CONSTRAINT ck_perfil_estado_disp CHECK (estado_disponibilidad IN ('DISPONIBLE', 'OCUPADO', 'INACTIVO'))
 );
 
--- 11. DISPONIBILIDAD_STAFF
 CREATE TABLE disponibilidad_staff (
     id_disponibilidad NUMBER        NOT NULL,
     id_usuario        NUMBER        NOT NULL,
@@ -169,20 +144,20 @@ CREATE TABLE disponibilidad_staff (
     CONSTRAINT ck_disp_estado CHECK (estado_disp IN ('DISPONIBLE', 'RESERVADO', 'NO_DISPONIBLE'))
 );
 
--- 12. ACTIVIDADES
 CREATE TABLE actividades (
-    id_actividad         NUMBER         NOT NULL,
-    titulo               VARCHAR2(120)  NOT NULL,
-    descripcion          VARCHAR2(500),
-    id_tipo_actividad    NUMBER         NOT NULL,
-    id_ubicacion         NUMBER         NOT NULL,
-    id_estado_actividad  NUMBER         NOT NULL,
-    fecha_actividad      DATE           NOT NULL,
-    hora_inicio          VARCHAR2(5)    NOT NULL,
-    cantidad_horas       NUMBER(4,1)    NOT NULL,
-    cupos_maximos        NUMBER         NOT NULL,
-    fecha_pub_programada TIMESTAMP,
-    id_admin_creador     NUMBER         NOT NULL,
+    id_actividad             NUMBER         NOT NULL,
+    titulo                   VARCHAR2(120)  NOT NULL,
+    descripcion              VARCHAR2(500),
+    id_tipo_actividad        NUMBER         NOT NULL,
+    id_ubicacion             NUMBER         NOT NULL,
+    id_estado_actividad      NUMBER         NOT NULL,
+    fecha_actividad          DATE           NOT NULL,
+    hora_inicio              VARCHAR2(5)    NOT NULL,
+    cantidad_horas           NUMBER(4,1)    NOT NULL,
+    cupos_maximos            NUMBER         NOT NULL,
+    fecha_pub_programada     TIMESTAMP,
+    id_admin_creador         NUMBER         NOT NULL,
+    horas_cierre_postulacion NUMBER(4,1)    DEFAULT 10 NOT NULL,
     CONSTRAINT pk_actividades PRIMARY KEY (id_actividad),
     CONSTRAINT fk_act_tipo FOREIGN KEY (id_tipo_actividad) REFERENCES tipos_actividad (id_tipo_actividad),
     CONSTRAINT fk_act_ubicacion FOREIGN KEY (id_ubicacion) REFERENCES ubicaciones (id_ubicacion),
@@ -190,16 +165,16 @@ CREATE TABLE actividades (
     CONSTRAINT fk_act_admin FOREIGN KEY (id_admin_creador) REFERENCES usuarios (id_usuario),
     CONSTRAINT ck_act_hora CHECK (REGEXP_LIKE(hora_inicio, '^([01][0-9]|2[0-3]):[0-5][0-9]$')),
     CONSTRAINT ck_act_horas CHECK (cantidad_horas > 0 AND cantidad_horas <= 24),
-    CONSTRAINT ck_act_cupos CHECK (cupos_maximos > 0)
+    CONSTRAINT ck_act_cupos CHECK (cupos_maximos > 0),
+    CONSTRAINT ck_act_cierre CHECK (horas_cierre_postulacion >= 0 AND horas_cierre_postulacion <= 720)
 );
 
--- 13. POSTULACIONES (UQ compuesta: id_actividad + id_usuario)
 CREATE TABLE postulaciones (
     id_postulacion     NUMBER        NOT NULL,
     id_actividad       NUMBER        NOT NULL,
     id_usuario         NUMBER        NOT NULL,
     estado_postulacion VARCHAR2(20)  DEFAULT 'CONFIRMADA' NOT NULL,
-    fecha_postulacion  TIMESTAMP     DEFAULT SYSTIMESTAMP NOT NULL,
+    fecha_postulacion  TIMESTAMP     DEFAULT CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) NOT NULL,
     asignado_por       NUMBER,
     CONSTRAINT pk_postulaciones PRIMARY KEY (id_postulacion),
     CONSTRAINT uq_post_act_usr UNIQUE (id_actividad, id_usuario),
@@ -209,12 +184,11 @@ CREATE TABLE postulaciones (
     CONSTRAINT ck_post_estado CHECK (estado_postulacion IN ('CONFIRMADA', 'ASIGNADA', 'CANCELADA'))
 );
 
--- 14. LISTA_ESPERA (UQ compuesta: id_actividad + id_usuario)
 CREATE TABLE lista_espera (
     id_lista_espera  NUMBER        NOT NULL,
     id_actividad     NUMBER        NOT NULL,
     id_usuario       NUMBER        NOT NULL,
-    fecha_ingreso    TIMESTAMP     DEFAULT SYSTIMESTAMP NOT NULL,
+    fecha_ingreso    TIMESTAMP     DEFAULT CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) NOT NULL,
     estado_espera    VARCHAR2(20)  DEFAULT 'PENDIENTE' NOT NULL,
     resuelto_por     NUMBER,
     fecha_resolucion TIMESTAMP,
@@ -226,7 +200,6 @@ CREATE TABLE lista_espera (
     CONSTRAINT ck_espera_estado CHECK (estado_espera IN ('PENDIENTE', 'ACEPTADA', 'RECHAZADA', 'CANCELADA'))
 );
 
--- 15. REGISTRO_TRABAJO (Relación 1 a 0..1 con POSTULACIONES vía UQ en id_postulacion)
 CREATE TABLE registro_trabajo (
     id_registro      NUMBER        NOT NULL,
     id_postulacion   NUMBER        NOT NULL,
@@ -234,7 +207,7 @@ CREATE TABLE registro_trabajo (
     horas_efectivas  NUMBER(4,1)   NOT NULL,
     observaciones    VARCHAR2(300),
     validado_por     NUMBER        NOT NULL,
-    fecha_validacion TIMESTAMP     DEFAULT SYSTIMESTAMP NOT NULL,
+    fecha_validacion TIMESTAMP     DEFAULT CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) NOT NULL,
     CONSTRAINT pk_registro_trabajo PRIMARY KEY (id_registro),
     CONSTRAINT uq_reg_postulacion UNIQUE (id_postulacion),
     CONSTRAINT fk_reg_postulacion FOREIGN KEY (id_postulacion) REFERENCES postulaciones (id_postulacion),
@@ -243,7 +216,6 @@ CREATE TABLE registro_trabajo (
     CONSTRAINT ck_reg_horas CHECK (horas_efectivas >= 0 AND horas_efectivas <= 24)
 );
 
--- 16. AUDITORIA_SISTEMA
 CREATE TABLE auditoria_sistema (
     id_auditoria        NUMBER        NOT NULL,
     tabla_afectada      VARCHAR2(40)  NOT NULL,
@@ -251,12 +223,11 @@ CREATE TABLE auditoria_sistema (
     accion              VARCHAR2(30)  NOT NULL,
     detalle_cambio      VARCHAR2(400),
     id_usuario_ejecutor NUMBER,
-    fecha_evento        TIMESTAMP     DEFAULT SYSTIMESTAMP NOT NULL,
+    fecha_evento        TIMESTAMP     DEFAULT CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) NOT NULL,
     CONSTRAINT pk_auditoria_sistema PRIMARY KEY (id_auditoria),
     CONSTRAINT fk_aud_usuario FOREIGN KEY (id_usuario_ejecutor) REFERENCES usuarios (id_usuario)
 );
 
--- Índices de apoyo para rendimiento en consultas, reportes y joins frecuentes
 CREATE INDEX idx_usuarios_rol         ON usuarios (id_rol);
 CREATE INDEX idx_actividades_fecha    ON actividades (fecha_actividad);
 CREATE INDEX idx_actividades_estado   ON actividades (id_estado_actividad);
@@ -266,9 +237,7 @@ CREATE INDEX idx_espera_actividad     ON lista_espera (id_actividad);
 CREATE INDEX idx_disp_usuario_fecha   ON disponibilidad_staff (id_usuario, fecha_disponible);
 CREATE INDEX idx_auditoria_fecha      ON auditoria_sistema (fecha_evento);
 
--- ----------------------------------------------------------------------------
--- SECCIÓN 3: SECUENCIAS (15 SECUENCIAS AUTOINCREMENTALES)
--- ----------------------------------------------------------------------------
+-- 3. Secuencias
 CREATE SEQUENCE seq_roles                START WITH 1 INCREMENT BY 1 NOCACHE;
 CREATE SEQUENCE seq_facultades           START WITH 1 INCREMENT BY 1 NOCACHE;
 CREATE SEQUENCE seq_carreras             START WITH 1 INCREMENT BY 1 NOCACHE;
@@ -285,12 +254,8 @@ CREATE SEQUENCE seq_lista_espera         START WITH 1 INCREMENT BY 1 NOCACHE;
 CREATE SEQUENCE seq_registro_trabajo     START WITH 1 INCREMENT BY 1 NOCACHE;
 CREATE SEQUENCE seq_auditoria_sistema    START WITH 1 INCREMENT BY 1 NOCACHE;
 
--- ----------------------------------------------------------------------------
--- SECCIÓN 4: TRIGGERS DE REGLAS DE NEGOCIO Y AUDITORÍA AUTOMÁTICA
--- ----------------------------------------------------------------------------
+-- 4. Triggers de validación y auditoría
 
--- TRIGGER 1: Jerarquía estricta de usuarios y blindaje del único SUPERADMIN
--- (Compound Trigger: evita error ORA-04091 de tabla mutante en Oracle)
 CREATE OR REPLACE TRIGGER trg_usuarios_jerarquia
 FOR INSERT OR UPDATE OR DELETE ON usuarios
 COMPOUND TRIGGER
@@ -367,7 +332,6 @@ COMPOUND TRIGGER
 END trg_usuarios_jerarquia;
 /
 
--- TRIGGER 2: Validar que solo un STAFF tenga perfil en PERFILES_STAFF
 CREATE OR REPLACE TRIGGER trg_perfil_solo_staff
 BEFORE INSERT OR UPDATE ON perfiles_staff
 FOR EACH ROW
@@ -381,7 +345,6 @@ BEGIN
 END trg_perfil_solo_staff;
 /
 
--- TRIGGER 3: Validar que solo un ADMIN activo cree actividades
 CREATE OR REPLACE TRIGGER trg_actividades_control
 BEFORE INSERT OR UPDATE ON actividades
 FOR EACH ROW
@@ -403,8 +366,6 @@ BEGIN
 END trg_actividades_control;
 /
 
--- TRIGGER 4: Control estricto de roles y cupos en POSTULACIONES
--- (Compound Trigger: evita sobreventa de cupos sin error de tabla mutante)
 CREATE OR REPLACE TRIGGER trg_postulaciones_control
 FOR INSERT OR UPDATE ON postulaciones
 COMPOUND TRIGGER
@@ -471,7 +432,6 @@ COMPOUND TRIGGER
 END trg_postulaciones_control;
 /
 
--- TRIGGER 5: Control de roles y fechas en LISTA_ESPERA
 CREATE OR REPLACE TRIGGER trg_lista_espera_control
 BEFORE INSERT OR UPDATE ON lista_espera
 FOR EACH ROW
@@ -490,13 +450,12 @@ BEGIN
             RAISE_APPLICATION_ERROR(-20016, 'Solo un ADMIN puede aprobar o rechazar solicitudes de lista de espera.');
         END IF;
         IF :NEW.fecha_resolucion IS NULL THEN
-            :NEW.fecha_resolucion := SYSTIMESTAMP;
+            :NEW.fecha_resolucion := CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP);
         END IF;
     END IF;
 END trg_lista_espera_control;
 /
 
--- TRIGGER 6: Control de validación de trabajo y asistencia
 CREATE OR REPLACE TRIGGER trg_registro_trabajo_control
 BEFORE INSERT OR UPDATE ON registro_trabajo
 FOR EACH ROW
@@ -523,7 +482,6 @@ BEGIN
 END trg_registro_trabajo_control;
 /
 
--- TRIGGER 7: Auditoría automática de USUARIOS
 CREATE OR REPLACE TRIGGER trg_aud_usuarios
 AFTER INSERT OR UPDATE OR DELETE ON usuarios
 FOR EACH ROW
@@ -558,7 +516,6 @@ BEGIN
 END trg_aud_usuarios;
 /
 
--- TRIGGER 8: Auditoría automática de ACTIVIDADES
 CREATE OR REPLACE TRIGGER trg_aud_actividades
 AFTER INSERT OR UPDATE OR DELETE ON actividades
 FOR EACH ROW
@@ -585,7 +542,6 @@ BEGIN
 END trg_aud_actividades;
 /
 
--- TRIGGER 9: Auditoría automática de POSTULACIONES y REGISTRO_TRABAJO
 CREATE OR REPLACE TRIGGER trg_aud_postulaciones
 AFTER INSERT OR UPDATE ON postulaciones
 FOR EACH ROW
@@ -625,7 +581,6 @@ BEGIN
 END trg_aud_registro_trabajo;
 /
 
--- Verificación rápida del Bloque 1 (se borra al pegar Bloque 2 y 3 al final)
 SELECT
     (SELECT COUNT(*) FROM user_tables)    AS tablas_creadas,
     (SELECT COUNT(*) FROM user_sequences) AS secuencias_creadas,
@@ -633,20 +588,8 @@ SELECT
     (SELECT COUNT(*) FROM user_errors)    AS errores_compilacion
 FROM dual;
 
+-- 5. Packages mantenedores (CRUD)
 
---fin bloque 1
-
--- ============================================================================
--- BLOQUE 2: 18 PACKAGES PL/SQL (10 MANTENEDORES + 5 GESTORES + 3 REPORTES)
--- ============================================================================
-
--- ============================================================================
--- SECCIÓN 5: LOS 10 MANTENEDORES CRUD (PKG_MANT_*)
--- ============================================================================
-
--- ----------------------------------------------------------------------------
--- MANTENEDOR 1: FACULTADES
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_mant_facultades AS
     PROCEDURE listar(p_cursor OUT SYS_REFCURSOR);
     PROCEDURE obtener(p_id IN NUMBER, p_cursor OUT SYS_REFCURSOR);
@@ -710,9 +653,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_facultades AS
 END pkg_mant_facultades;
 /
 
--- ----------------------------------------------------------------------------
--- MANTENEDOR 2: CARRERAS
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_mant_carreras AS
     PROCEDURE listar(p_cursor OUT SYS_REFCURSOR);
     PROCEDURE obtener(p_id IN NUMBER, p_cursor OUT SYS_REFCURSOR);
@@ -778,9 +718,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_carreras AS
 END pkg_mant_carreras;
 /
 
--- ----------------------------------------------------------------------------
--- MANTENEDOR 3: REGIONES
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_mant_regiones AS
     PROCEDURE listar(p_cursor OUT SYS_REFCURSOR);
     PROCEDURE obtener(p_id IN NUMBER, p_cursor OUT SYS_REFCURSOR);
@@ -844,9 +781,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_regiones AS
 END pkg_mant_regiones;
 /
 
--- ----------------------------------------------------------------------------
--- MANTENEDOR 4: CIUDADES
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_mant_ciudades AS
     PROCEDURE listar(p_cursor OUT SYS_REFCURSOR);
     PROCEDURE obtener(p_id IN NUMBER, p_cursor OUT SYS_REFCURSOR);
@@ -912,9 +846,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_ciudades AS
 END pkg_mant_ciudades;
 /
 
--- ----------------------------------------------------------------------------
--- MANTENEDOR 5: UBICACIONES
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_mant_ubicaciones AS
     PROCEDURE listar(p_cursor OUT SYS_REFCURSOR);
     PROCEDURE obtener(p_id IN NUMBER, p_cursor OUT SYS_REFCURSOR);
@@ -1009,9 +940,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_ubicaciones AS
 END pkg_mant_ubicaciones;
 /
 
--- ----------------------------------------------------------------------------
--- MANTENEDOR 6: TIPOS_ACTIVIDAD
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_mant_tipos_act AS
     PROCEDURE listar(p_cursor OUT SYS_REFCURSOR);
     PROCEDURE obtener(p_id IN NUMBER, p_cursor OUT SYS_REFCURSOR);
@@ -1075,9 +1003,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_tipos_act AS
 END pkg_mant_tipos_act;
 /
 
--- ----------------------------------------------------------------------------
--- MANTENEDOR 7: ESTADOS_ACTIVIDAD
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_mant_estados_act AS
     PROCEDURE listar(p_cursor OUT SYS_REFCURSOR);
     PROCEDURE obtener(p_id IN NUMBER, p_cursor OUT SYS_REFCURSOR);
@@ -1141,9 +1066,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_estados_act AS
 END pkg_mant_estados_act;
 /
 
--- ----------------------------------------------------------------------------
--- MANTENEDOR 8: PERFILES_STAFF
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_mant_perfiles_staff AS
     PROCEDURE listar(p_cursor OUT SYS_REFCURSOR);
     PROCEDURE obtener(p_id_usuario IN NUMBER, p_cursor OUT SYS_REFCURSOR);
@@ -1242,9 +1164,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_perfiles_staff AS
 END pkg_mant_perfiles_staff;
 /
 
--- ----------------------------------------------------------------------------
--- MANTENEDOR 9: DISPONIBILIDAD_STAFF
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_mant_disp_staff AS
     PROCEDURE listar(p_id_usuario IN NUMBER DEFAULT NULL, p_cursor OUT SYS_REFCURSOR);
     PROCEDURE obtener(p_id IN NUMBER, p_cursor OUT SYS_REFCURSOR);
@@ -1328,38 +1247,37 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_disp_staff AS
 END pkg_mant_disp_staff;
 /
 
--- ----------------------------------------------------------------------------
--- MANTENEDOR 10: ACTIVIDADES
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_mant_actividades AS
     PROCEDURE listar(p_cursor OUT SYS_REFCURSOR);
     PROCEDURE obtener(p_id IN NUMBER, p_cursor OUT SYS_REFCURSOR);
     PROCEDURE crear(
-        p_titulo               IN VARCHAR2,
-        p_descripcion          IN VARCHAR2,
-        p_id_tipo_actividad    IN NUMBER,
-        p_id_ubicacion         IN NUMBER,
-        p_id_estado_actividad  IN NUMBER,
-        p_fecha_actividad      IN DATE,
-        p_hora_inicio          IN VARCHAR2,
-        p_cantidad_horas       IN NUMBER,
-        p_cupos_maximos        IN NUMBER,
-        p_fecha_pub_programada IN TIMESTAMP,
-        p_id_admin_creador     IN NUMBER,
-        p_id_out               OUT NUMBER
+        p_titulo                   IN VARCHAR2,
+        p_descripcion              IN VARCHAR2,
+        p_id_tipo_actividad        IN NUMBER,
+        p_id_ubicacion             IN NUMBER,
+        p_id_estado_actividad      IN NUMBER,
+        p_fecha_actividad          IN DATE,
+        p_hora_inicio              IN VARCHAR2,
+        p_cantidad_horas           IN NUMBER,
+        p_cupos_maximos            IN NUMBER,
+        p_fecha_pub_programada     IN TIMESTAMP,
+        p_id_admin_creador         IN NUMBER,
+        p_horas_cierre_postulacion IN NUMBER DEFAULT 10,
+        p_id_out                   OUT NUMBER
     );
     PROCEDURE actualizar(
-        p_id                   IN NUMBER,
-        p_titulo               IN VARCHAR2,
-        p_descripcion          IN VARCHAR2,
-        p_id_tipo_actividad    IN NUMBER,
-        p_id_ubicacion         IN NUMBER,
-        p_id_estado_actividad  IN NUMBER,
-        p_fecha_actividad      IN DATE,
-        p_hora_inicio          IN VARCHAR2,
-        p_cantidad_horas       IN NUMBER,
-        p_cupos_maximos        IN NUMBER,
-        p_fecha_pub_programada IN TIMESTAMP
+        p_id                       IN NUMBER,
+        p_titulo                   IN VARCHAR2,
+        p_descripcion              IN VARCHAR2,
+        p_id_tipo_actividad        IN NUMBER,
+        p_id_ubicacion             IN NUMBER,
+        p_id_estado_actividad      IN NUMBER,
+        p_fecha_actividad          IN DATE,
+        p_hora_inicio              IN VARCHAR2,
+        p_cantidad_horas           IN NUMBER,
+        p_cupos_maximos            IN NUMBER,
+        p_fecha_pub_programada     IN TIMESTAMP,
+        p_horas_cierre_postulacion IN NUMBER DEFAULT 10
     );
     PROCEDURE eliminar(p_id IN NUMBER);
 END pkg_mant_actividades;
@@ -1377,6 +1295,9 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_actividades AS
                    a.id_ubicacion, ub.nombre_lugar, ub.direccion, ub.url_google_maps, ci.nombre_ciudad,
                    a.id_estado_actividad, ea.nombre_estado,
                    a.fecha_actividad, a.hora_inicio, a.cantidad_horas, a.cupos_maximos,
+                   a.horas_cierre_postulacion,
+                   TO_TIMESTAMP(TO_CHAR(a.fecha_actividad, 'YYYY-MM-DD') || ' ' || a.hora_inicio, 'YYYY-MM-DD HH24:MI')
+                       - NUMTODSINTERVAL(NVL(a.horas_cierre_postulacion, 10), 'HOUR') AS fecha_cierre_postulacion,
                    a.fecha_pub_programada, a.id_admin_creador,
                    adm.nombre || ' ' || adm.apellido AS admin_creador
               FROM actividades a
@@ -1396,6 +1317,9 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_actividades AS
                    a.id_ubicacion, ub.nombre_lugar, ub.direccion, ub.url_google_maps, ci.nombre_ciudad,
                    a.id_estado_actividad, ea.nombre_estado,
                    a.fecha_actividad, a.hora_inicio, a.cantidad_horas, a.cupos_maximos,
+                   a.horas_cierre_postulacion,
+                   TO_TIMESTAMP(TO_CHAR(a.fecha_actividad, 'YYYY-MM-DD') || ' ' || a.hora_inicio, 'YYYY-MM-DD HH24:MI')
+                       - NUMTODSINTERVAL(NVL(a.horas_cierre_postulacion, 10), 'HOUR') AS fecha_cierre_postulacion,
                    a.fecha_pub_programada, a.id_admin_creador
               FROM actividades a
               JOIN tipos_actividad ta   ON ta.id_tipo_actividad   = a.id_tipo_actividad
@@ -1406,45 +1330,47 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_actividades AS
     END;
 
     PROCEDURE crear(
-        p_titulo               IN VARCHAR2,
-        p_descripcion          IN VARCHAR2,
-        p_id_tipo_actividad    IN NUMBER,
-        p_id_ubicacion         IN NUMBER,
-        p_id_estado_actividad  IN NUMBER,
-        p_fecha_actividad      IN DATE,
-        p_hora_inicio          IN VARCHAR2,
-        p_cantidad_horas       IN NUMBER,
-        p_cupos_maximos        IN NUMBER,
-        p_fecha_pub_programada IN TIMESTAMP,
-        p_id_admin_creador     IN NUMBER,
-        p_id_out               OUT NUMBER
+        p_titulo                   IN VARCHAR2,
+        p_descripcion              IN VARCHAR2,
+        p_id_tipo_actividad        IN NUMBER,
+        p_id_ubicacion             IN NUMBER,
+        p_id_estado_actividad      IN NUMBER,
+        p_fecha_actividad          IN DATE,
+        p_hora_inicio              IN VARCHAR2,
+        p_cantidad_horas           IN NUMBER,
+        p_cupos_maximos            IN NUMBER,
+        p_fecha_pub_programada     IN TIMESTAMP,
+        p_id_admin_creador         IN NUMBER,
+        p_horas_cierre_postulacion IN NUMBER DEFAULT 10,
+        p_id_out                   OUT NUMBER
     ) IS
     BEGIN
         p_id_out := seq_actividades.NEXTVAL;
         INSERT INTO actividades (
             id_actividad, titulo, descripcion, id_tipo_actividad, id_ubicacion,
             id_estado_actividad, fecha_actividad, hora_inicio, cantidad_horas,
-            cupos_maximos, fecha_pub_programada, id_admin_creador
+            cupos_maximos, fecha_pub_programada, id_admin_creador, horas_cierre_postulacion
         ) VALUES (
             p_id_out, TRIM(p_titulo), TRIM(p_descripcion), p_id_tipo_actividad, p_id_ubicacion,
             p_id_estado_actividad, TRUNC(p_fecha_actividad), TRIM(p_hora_inicio), p_cantidad_horas,
-            p_cupos_maximos, p_fecha_pub_programada, p_id_admin_creador
+            p_cupos_maximos, p_fecha_pub_programada, p_id_admin_creador, NVL(p_horas_cierre_postulacion, 10)
         );
         COMMIT;
     END;
 
     PROCEDURE actualizar(
-        p_id                   IN NUMBER,
-        p_titulo               IN VARCHAR2,
-        p_descripcion          IN VARCHAR2,
-        p_id_tipo_actividad    IN NUMBER,
-        p_id_ubicacion         IN NUMBER,
-        p_id_estado_actividad  IN NUMBER,
-        p_fecha_actividad      IN DATE,
-        p_hora_inicio          IN VARCHAR2,
-        p_cantidad_horas       IN NUMBER,
-        p_cupos_maximos        IN NUMBER,
-        p_fecha_pub_programada IN TIMESTAMP
+        p_id                       IN NUMBER,
+        p_titulo                   IN VARCHAR2,
+        p_descripcion              IN VARCHAR2,
+        p_id_tipo_actividad        IN NUMBER,
+        p_id_ubicacion             IN NUMBER,
+        p_id_estado_actividad      IN NUMBER,
+        p_fecha_actividad          IN DATE,
+        p_hora_inicio              IN VARCHAR2,
+        p_cantidad_horas           IN NUMBER,
+        p_cupos_maximos            IN NUMBER,
+        p_fecha_pub_programada     IN TIMESTAMP,
+        p_horas_cierre_postulacion IN NUMBER DEFAULT 10
     ) IS
         v_ocupados NUMBER;
     BEGIN
@@ -1458,16 +1384,17 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_actividades AS
         END IF;
 
         UPDATE actividades
-           SET titulo               = TRIM(p_titulo),
-               descripcion          = TRIM(p_descripcion),
-               id_tipo_actividad    = p_id_tipo_actividad,
-               id_ubicacion         = p_id_ubicacion,
-               id_estado_actividad  = p_id_estado_actividad,
-               fecha_actividad      = TRUNC(p_fecha_actividad),
-               hora_inicio          = TRIM(p_hora_inicio),
-               cantidad_horas       = p_cantidad_horas,
-               cupos_maximos        = p_cupos_maximos,
-               fecha_pub_programada = p_fecha_pub_programada
+           SET titulo                   = TRIM(p_titulo),
+               descripcion              = TRIM(p_descripcion),
+               id_tipo_actividad        = p_id_tipo_actividad,
+               id_ubicacion             = p_id_ubicacion,
+               id_estado_actividad      = p_id_estado_actividad,
+               fecha_actividad          = TRUNC(p_fecha_actividad),
+               hora_inicio              = TRIM(p_hora_inicio),
+               cantidad_horas           = p_cantidad_horas,
+               cupos_maximos            = p_cupos_maximos,
+               fecha_pub_programada     = p_fecha_pub_programada,
+               horas_cierre_postulacion = NVL(p_horas_cierre_postulacion, 10)
          WHERE id_actividad = p_id;
 
         IF SQL%ROWCOUNT = 0 THEN
@@ -1490,14 +1417,8 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_actividades AS
 END pkg_mant_actividades;
 /
 
+-- 6. Packages de gestión
 
--- ============================================================================
--- SECCIÓN 6: LOS 5 GESTORES DE INFORMACIÓN (PKG_GEST_*)
--- ============================================================================
-
--- ----------------------------------------------------------------------------
--- GESTOR 1: SEGURIDAD, AUTENTICACIÓN Y PROVISIÓN JERÁRQUICA DE USUARIOS
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_gest_usuarios AS
     PROCEDURE obtener_por_correo(p_correo IN VARCHAR2, p_cursor OUT SYS_REFCURSOR);
     PROCEDURE obtener_por_id(p_id_usuario IN NUMBER, p_cursor OUT SYS_REFCURSOR);
@@ -1769,7 +1690,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_usuarios AS
             RAISE_APPLICATION_ERROR(-20204, 'No tienes permisos para eliminar cuentas Staff.');
         END IF;
 
-        -- Conserva la bitácora de auditoría sin violar fk_aud_usuario
         UPDATE auditoria_sistema
            SET id_usuario_ejecutor = NULL
          WHERE id_usuario_ejecutor = p_id_usuario;
@@ -1785,7 +1705,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_usuarios AS
             DELETE FROM perfiles_staff       WHERE id_usuario = p_id_usuario;
             DELETE FROM usuarios             WHERE id_usuario = p_id_usuario;
         ELSE
-            -- Verifica si el Admin tiene registros con FK obligatoria a rol ADMIN
             SELECT (SELECT COUNT(*) FROM actividades      WHERE id_admin_creador = p_id_usuario)
                  + (SELECT COUNT(*) FROM registro_trabajo WHERE validado_por     = p_id_usuario)
                  + (SELECT COUNT(*) FROM usuarios         WHERE creado_por       = p_id_usuario)
@@ -1842,9 +1761,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_usuarios AS
 END pkg_gest_usuarios;
 /
 
--- ----------------------------------------------------------------------------
--- GESTOR 2: GESTIÓN DE PUBLICACIÓN Y CALENDARIO DE ACTIVIDADES
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_gest_actividades AS
     FUNCTION fn_cupos_disponibles(p_id_actividad IN NUMBER) RETURN NUMBER;
     PROCEDURE publicar_actividad(p_id_actividad IN NUMBER, p_id_admin IN NUMBER);
@@ -1939,7 +1855,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_actividades AS
            SET id_estado_actividad = v_id_pub
          WHERE id_estado_actividad = v_id_prog
            AND fecha_pub_programada IS NOT NULL
-           AND fecha_pub_programada <= SYSTIMESTAMP;
+           AND fecha_pub_programada <= CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP);
 
         p_activadas_out := SQL%ROWCOUNT;
         COMMIT;
@@ -1956,6 +1872,16 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_actividades AS
         OPEN p_cursor FOR
             SELECT a.id_actividad, a.titulo, a.descripcion,
                    a.fecha_actividad, a.hora_inicio, a.cantidad_horas, a.cupos_maximos,
+                   a.horas_cierre_postulacion,
+                   TO_TIMESTAMP(TO_CHAR(a.fecha_actividad, 'YYYY-MM-DD') || ' ' || a.hora_inicio, 'YYYY-MM-DD HH24:MI')
+                       - NUMTODSINTERVAL(NVL(a.horas_cierre_postulacion, 10), 'HOUR') AS fecha_cierre_postulacion,
+                   CASE
+                       WHEN CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) >=
+                            (TO_TIMESTAMP(TO_CHAR(a.fecha_actividad, 'YYYY-MM-DD') || ' ' || a.hora_inicio, 'YYYY-MM-DD HH24:MI')
+                             - NUMTODSINTERVAL(NVL(a.horas_cierre_postulacion, 10), 'HOUR'))
+                       THEN 'S'
+                       ELSE 'N'
+                   END AS postulacion_cerrada,
                    a.fecha_pub_programada,
                    ta.id_tipo_actividad, ta.nombre_tipo, ta.color_hex,
                    ea.id_estado_actividad, ea.nombre_estado,
@@ -1987,9 +1913,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_actividades AS
 END pkg_gest_actividades;
 /
 
--- ----------------------------------------------------------------------------
--- GESTOR 3: POSTULACIONES ATÓMICAS Y ASIGNACIÓN DIRECTA
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_gest_postulaciones AS
     PROCEDURE postular_staff(
         p_id_actividad  IN NUMBER,
@@ -2016,17 +1939,22 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_postulaciones AS
         p_resultado_out OUT VARCHAR2,
         p_id_out        OUT NUMBER
     ) IS
-        v_cupos_max   NUMBER;
-        v_ocupados    NUMBER;
-        v_nom_estado  VARCHAR2(30);
-        v_post_id     NUMBER;
-        v_post_estado VARCHAR2(20);
-        v_esp_id      NUMBER;
-        v_esp_estado  VARCHAR2(20);
+        v_cupos_max    NUMBER;
+        v_ocupados     NUMBER;
+        v_nom_estado   VARCHAR2(30);
+        v_fecha_act    DATE;
+        v_hora_inicio  VARCHAR2(5);
+        v_horas_cierre NUMBER;
+        v_fecha_cierre TIMESTAMP;
+        v_ahora_chile  TIMESTAMP;
+        v_post_id      NUMBER;
+        v_post_estado  VARCHAR2(20);
+        v_esp_id       NUMBER;
+        v_esp_estado   VARCHAR2(20);
     BEGIN
-        -- Bloqueo de fila para evitar condiciones de carrera (dos Staff peleando el último cupo)
-        SELECT a.cupos_maximos, ea.nombre_estado
-          INTO v_cupos_max, v_nom_estado
+        SELECT a.cupos_maximos, ea.nombre_estado, a.fecha_actividad, a.hora_inicio,
+               NVL(a.horas_cierre_postulacion, 10)
+          INTO v_cupos_max, v_nom_estado, v_fecha_act, v_hora_inicio, v_horas_cierre
           FROM actividades a
           JOIN estados_actividad ea ON ea.id_estado_actividad = a.id_estado_actividad
          WHERE a.id_actividad = p_id_actividad
@@ -2036,7 +1964,19 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_postulaciones AS
             RAISE_APPLICATION_ERROR(-20220, 'La actividad no se encuentra PUBLICADA para postulación.');
         END IF;
 
-        -- Verificar si ya existía postulación previa
+        v_ahora_chile  := CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP);
+        v_fecha_cierre := TO_TIMESTAMP(TO_CHAR(v_fecha_act, 'YYYY-MM-DD') || ' ' || v_hora_inicio, 'YYYY-MM-DD HH24:MI')
+                          - NUMTODSINTERVAL(v_horas_cierre, 'HOUR');
+
+        IF v_ahora_chile >= v_fecha_cierre THEN
+            RAISE_APPLICATION_ERROR(
+                -20226,
+                'Postulaciones cerradas: el plazo cerró el ' ||
+                TO_CHAR(v_fecha_cierre, 'DD/MM/YYYY HH24:MI') ||
+                ' (' || v_horas_cierre || 'h antes del inicio de la actividad).'
+            );
+        END IF;
+
         BEGIN
             SELECT id_postulacion, estado_postulacion
               INTO v_post_id, v_post_estado
@@ -2058,11 +1998,10 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_postulaciones AS
            AND estado_postulacion IN ('CONFIRMADA', 'ASIGNADA');
 
         IF v_ocupados < v_cupos_max THEN
-            -- Hay cupo disponible -> Postulación confirmada
             IF v_post_id IS NOT NULL THEN
                 UPDATE postulaciones
                    SET estado_postulacion = 'CONFIRMADA',
-                       fecha_postulacion  = SYSTIMESTAMP,
+                       fecha_postulacion  = v_ahora_chile,
                        asignado_por       = NULL
                  WHERE id_postulacion = v_post_id;
                 p_id_out := v_post_id;
@@ -2073,7 +2012,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_postulaciones AS
             END IF;
             p_resultado_out := 'POSTULACION_CONFIRMADA';
         ELSE
-            -- Cupos llenos -> Desvío automático a LISTA_ESPERA
             BEGIN
                 SELECT id_lista_espera, estado_espera
                   INTO v_esp_id, v_esp_estado
@@ -2087,7 +2025,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_postulaciones AS
 
                 UPDATE lista_espera
                    SET estado_espera    = 'PENDIENTE',
-                       fecha_ingreso    = SYSTIMESTAMP,
+                       fecha_ingreso    = v_ahora_chile,
                        resuelto_por     = NULL,
                        fecha_resolucion = NULL
                  WHERE id_lista_espera = v_esp_id;
@@ -2128,7 +2066,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_postulaciones AS
             UPDATE postulaciones
                SET estado_postulacion = 'ASIGNADA',
                    asignado_por       = p_id_admin,
-                   fecha_postulacion  = SYSTIMESTAMP
+                   fecha_postulacion  = CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP)
              WHERE id_postulacion = v_post_id;
             p_id_out := v_post_id;
         EXCEPTION
@@ -2201,9 +2139,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_postulaciones AS
 END pkg_gest_postulaciones;
 /
 
--- ----------------------------------------------------------------------------
--- GESTOR 4: ADMINISTRACIÓN Y RESOLUCIÓN DE LISTA DE ESPERA
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_gest_lista_espera AS
     PROCEDURE listar_por_actividad(p_id_actividad IN NUMBER, p_cursor OUT SYS_REFCURSOR);
     PROCEDURE listar_pendientes(p_cursor OUT SYS_REFCURSOR);
@@ -2278,7 +2213,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_lista_espera AS
         p_id_postulacion_out := NULL;
 
         IF v_dec = 'ACEPTADA' THEN
-            -- El trigger trg_postulaciones_control garantiza automáticamente que exista cupo
             BEGIN
                 SELECT id_postulacion INTO v_post_id
                   FROM postulaciones
@@ -2288,7 +2222,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_lista_espera AS
                 UPDATE postulaciones
                    SET estado_postulacion = 'ASIGNADA',
                        asignado_por       = p_id_admin,
-                       fecha_postulacion  = SYSTIMESTAMP
+                       fecha_postulacion  = CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP)
                  WHERE id_postulacion = v_post_id;
                 p_id_postulacion_out := v_post_id;
             EXCEPTION
@@ -2302,7 +2236,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_lista_espera AS
         UPDATE lista_espera
            SET estado_espera    = v_dec,
                resuelto_por     = p_id_admin,
-               fecha_resolucion = SYSTIMESTAMP
+               fecha_resolucion = CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP)
          WHERE id_lista_espera = p_id_lista_espera;
 
         COMMIT;
@@ -2317,9 +2251,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_lista_espera AS
 END pkg_gest_lista_espera;
 /
 
--- ----------------------------------------------------------------------------
--- GESTOR 5: VALIDACIÓN DE ASISTENCIA, HORAS MENSUALES Y MONITOREO AUDITORÍA
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_gest_trabajo AS
     FUNCTION fn_horas_mes_staff(p_id_usuario IN NUMBER, p_mes IN NUMBER, p_anio IN NUMBER) RETURN NUMBER;
     PROCEDURE validar_trabajo(
@@ -2378,7 +2309,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_trabajo AS
                    horas_efectivas  = p_horas_efectivas,
                    observaciones    = TRIM(p_observaciones),
                    validado_por     = p_id_admin,
-                   fecha_validacion = SYSTIMESTAMP
+                   fecha_validacion = CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP)
              WHERE id_registro = v_id_reg;
             p_id_registro_out := v_id_reg;
         EXCEPTION
@@ -2448,14 +2379,8 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_trabajo AS
 END pkg_gest_trabajo;
 /
 
+-- 7. Packages de reportes
 
--- ============================================================================
--- SECCIÓN 7: LOS 3 REPORTES ESTRATÉGICOS / DASHBOARDS (PKG_REP_*)
--- ============================================================================
-
--- ----------------------------------------------------------------------------
--- REPORTE 1: HORAS EFECTIVAS Y DESEMPEÑO POR STAFF / FACULTAD / CARRERA
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_rep_horas_staff AS
     PROCEDURE rep_ranking_staff(
         p_mes    IN NUMBER DEFAULT NULL,
@@ -2538,9 +2463,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_rep_horas_staff AS
 END pkg_rep_horas_staff;
 /
 
--- ----------------------------------------------------------------------------
--- REPORTE 2: COBERTURA DE CUPOS Y DEMANDA INSATISFECHA POR TIPO DE ACTIVIDAD
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_rep_cobertura AS
     FUNCTION fn_tasa_ocupacion(p_id_actividad IN NUMBER) RETURN NUMBER;
     PROCEDURE rep_cobertura_actividades(
@@ -2635,9 +2557,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_rep_cobertura AS
 END pkg_rep_cobertura;
 /
 
--- ----------------------------------------------------------------------------
--- REPORTE 3: DASHBOARD EJECUTIVO (KPIS CONSOLIDADOS Y TENDENCIA MENSUAL)
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE pkg_rep_ejecutivo AS
     PROCEDURE rep_kpis_generales(
         p_mes    IN NUMBER DEFAULT NULL,
@@ -2738,30 +2657,24 @@ CREATE OR REPLACE PACKAGE BODY pkg_rep_ejecutivo AS
 END pkg_rep_ejecutivo;
 /
 
---fin bloque 2
-
--- ============================================================================
--- BLOQUE 3: CARGA DE DATOS UCM (SEED LIMPIO: 1 SUPERADMIN, 2 ADMINS, 5 STAFF)
--- Contraseña inicial de todas las cuentas base: Ucm2026!
--- ============================================================================
+-- 8. Carga de datos iniciales
 
 DECLARE
     v_hash_demo VARCHAR2(255);
 
-    -- IDs Roles
     v_rol_super NUMBER;
     v_rol_admin NUMBER;
     v_rol_staff NUMBER;
 
-    -- IDs Facultades
     v_fac_fci   NUMBER;
     v_fac_fcs   NUMBER;
     v_fac_fcb   NUMBER;
     v_fac_facse NUMBER;
     v_fac_fce   NUMBER;
     v_fac_fmed  NUMBER;
+    v_fac_facaf NUMBER;
+    v_fac_fcrf  NUMBER;
 
-    -- IDs Carreras
     v_car_ici   NUMBER;
     v_car_ind   NUMBER;
     v_car_ele   NUMBER;
@@ -2773,7 +2686,6 @@ DECLARE
     v_car_pbas  NUMBER;
     v_car_med   NUMBER;
 
-    -- IDs Regiones y Ciudades
     v_reg_maule NUMBER;
     v_reg_ohig  NUMBER;
     v_reg_nuble NUMBER;
@@ -2786,7 +2698,6 @@ DECLARE
     v_ciu_ranca  NUMBER;
     v_ciu_chill  NUMBER;
 
-    -- IDs Ubicaciones
     v_ub_smiguel NUMBER;
     v_ub_carmen  NUMBER;
     v_ub_ext     NUMBER;
@@ -2797,7 +2708,6 @@ DECLARE
     v_ub_plaza_c NUMBER;
     v_ub_linares NUMBER;
 
-    -- IDs Tipos y Estados de Actividad
     v_tipo_feria  NUMBER;
     v_tipo_puert  NUMBER;
     v_tipo_charla NUMBER;
@@ -2812,13 +2722,12 @@ DECLARE
     v_est_fin  NUMBER;
     v_est_canc NUMBER;
 
-    -- IDs Usuarios (1 Superadmin, 2 Admins, 5 Staff)
-    v_usr_super NUMBER;
-    v_adm_talca NUMBER;
-    v_adm_cur   NUMBER;
-    v_s1 NUMBER; v_s2 NUMBER; v_s3 NUMBER; v_s4 NUMBER; v_s5 NUMBER;
+    v_usr_super  NUMBER;
+    v_adm_talca  NUMBER;
+    v_adm_cur    NUMBER;
+    v_adm_carlos NUMBER;
+    v_s1 NUMBER; v_s2 NUMBER; v_s3 NUMBER; v_s4 NUMBER;
 
-    -- IDs Actividades
     v_act_01 NUMBER; v_act_02 NUMBER; v_act_03 NUMBER; v_act_04 NUMBER;
     v_act_05 NUMBER; v_act_06 NUMBER; v_act_07 NUMBER; v_act_08 NUMBER;
     v_act_09 NUMBER; v_act_10 NUMBER; v_act_11 NUMBER; v_act_12 NUMBER;
@@ -2839,14 +2748,10 @@ DECLARE
         VALUES (seq_registro_trabajo.NEXTVAL, p_post, p_asis, p_hrs, p_obs, p_val);
     END;
 BEGIN
-    -- Hash SHA-256 compatible con el backend para contraseña inicial 'Ucm2026!'
     SELECT 'SHA256:' || LOWER(RAWTOHEX(STANDARD_HASH('Ucm2026!', 'SHA256')))
       INTO v_hash_demo
       FROM dual;
 
-    -- ------------------------------------------------------------------------
-    -- 1. ROLES
-    -- ------------------------------------------------------------------------
     v_rol_super := seq_roles.NEXTVAL;
     INSERT INTO roles VALUES (v_rol_super, 'SUPERADMIN', 'Control maestro de cuentas Administradoras y auditoría global');
     v_rol_admin := seq_roles.NEXTVAL;
@@ -2854,33 +2759,70 @@ BEGIN
     v_rol_staff := seq_roles.NEXTVAL;
     INSERT INTO roles VALUES (v_rol_staff, 'STAFF', 'Estudiante embajador UCM con postulación y registro de horas');
 
-    -- ------------------------------------------------------------------------
-    -- 2. FACULTADES UCM
-    -- ------------------------------------------------------------------------
-    v_fac_fci   := seq_facultades.NEXTVAL; INSERT INTO facultades VALUES (v_fac_fci,   'Facultad de Ciencias de la Ingeniería', 'FCI');
-    v_fac_fcs   := seq_facultades.NEXTVAL; INSERT INTO facultades VALUES (v_fac_fcs,   'Facultad de Ciencias de la Salud',      'FCS');
-    v_fac_fcb   := seq_facultades.NEXTVAL; INSERT INTO facultades VALUES (v_fac_fcb,   'Facultad de Ciencias Básicas',          'FCB');
-    v_fac_facse := seq_facultades.NEXTVAL; INSERT INTO facultades VALUES (v_fac_facse, 'Facultad de Ciencias Sociales y Económicas', 'FACSE');
-    v_fac_fce   := seq_facultades.NEXTVAL; INSERT INTO facultades VALUES (v_fac_fce,   'Facultad de Ciencias de la Educación',  'FCE');
-    v_fac_fmed  := seq_facultades.NEXTVAL; INSERT INTO facultades VALUES (v_fac_fmed,  'Facultad de Medicina',                  'FMED');
+    v_fac_fci   := seq_facultades.NEXTVAL; INSERT INTO facultades VALUES (v_fac_fci,   'Facultad de Ciencias de la Ingeniería',        'FCI');
+    v_fac_fcs   := seq_facultades.NEXTVAL; INSERT INTO facultades VALUES (v_fac_fcs,   'Facultad de Ciencias de la Salud',             'FCS');
+    v_fac_fcb   := seq_facultades.NEXTVAL; INSERT INTO facultades VALUES (v_fac_fcb,   'Facultad de Ciencias Básicas',                 'FCB');
+    v_fac_facse := seq_facultades.NEXTVAL; INSERT INTO facultades VALUES (v_fac_facse, 'Facultad de Ciencias Sociales y Económicas',   'FACSE');
+    v_fac_fce   := seq_facultades.NEXTVAL; INSERT INTO facultades VALUES (v_fac_fce,   'Facultad de Ciencias de la Educación',         'FCE');
+    v_fac_fmed  := seq_facultades.NEXTVAL; INSERT INTO facultades VALUES (v_fac_fmed,  'Facultad de Medicina',                         'FMED');
+    v_fac_facaf := seq_facultades.NEXTVAL; INSERT INTO facultades VALUES (v_fac_facaf, 'Facultad de Ciencias Agrarias y Forestales',   'FACAF');
+    v_fac_fcrf  := seq_facultades.NEXTVAL; INSERT INTO facultades VALUES (v_fac_fcrf,  'Facultad de Ciencias Religiosas y Filosóficas','FCRF');
 
-    -- ------------------------------------------------------------------------
-    -- 3. CARRERAS UCM
-    -- ------------------------------------------------------------------------
     v_car_ici  := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_ici,  v_fac_fci,   'Ingeniería Civil Informática');
     v_car_ind  := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_ind,  v_fac_fci,   'Ingeniería Civil Industrial');
     v_car_ele  := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_ele,  v_fac_fci,   'Ingeniería Civil Electrónica');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fci,   'Arquitectura');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fci,   'Construcción Civil');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fci,   'Ingeniería Civil');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fci,   'Ingeniería Ejecución en Computación e Informática');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fci,   'Ingeniería Ejecución en Geomensura');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fci,   'Ingeniería en Automatización y Control');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fci,   'Ingeniería en Construcción');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fci,   'Ingeniería en Ejecución Industrial');
+
     v_car_enf  := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_enf,  v_fac_fcs,   'Enfermería');
     v_car_kin  := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_kin,  v_fac_fcs,   'Kinesiología');
-    v_car_pmat := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_pmat, v_fac_fcb,   'Pedagogía en Matemática y Computación');
-    v_car_ico  := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_ico,  v_fac_facse, 'Ingeniería Comercial');
-    v_car_aud  := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_aud,  v_fac_facse, 'Auditoría');
-    v_car_pbas := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_pbas, v_fac_fce,   'Pedagogía en Educación General Básica');
-    v_car_med  := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_med,  v_fac_fmed,  'Medicina');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fcs,   'Nutrición y Dietética');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fcs,   'Obstetricia y Puericultura');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fcs,   'Psicología');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fcs,   'Tecnología Médica');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fcs,   'Terapia Ocupacional');
 
-    -- ------------------------------------------------------------------------
-    -- 4. REGIONES Y CIUDADES
-    -- ------------------------------------------------------------------------
+    v_car_pmat := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_pmat, v_fac_fcb,   'Pedagogía en Matemática y Computación');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fcb,   'Geología');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fcb,   'Ingeniería en Estadística');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fcb,   'Ingeniería Matemática');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fcb,   'Pedagogía en Ciencias con mención');
+
+    v_car_ico  := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_ico,  v_fac_facse, 'Ingeniería Comercial');
+    v_car_aud  := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_aud,  v_fac_facse, 'Contador Público y Auditor');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_facse, 'Administración Pública');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_facse, 'Contador Auditor');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_facse, 'Derecho');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_facse, 'Ingeniería de Ejecución en Administración de Empresas');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_facse, 'Sociología');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_facse, 'Trabajo Social');
+
+    v_car_pbas := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_pbas, v_fac_fce,   'Pedagogía en Educación General Básica');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fce,   'Pedagogía en Educación Especial');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fce,   'Pedagogía en Educación Física');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fce,   'Pedagogía en Educación Parvularia');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fce,   'Pedagogía en Historia, Geografía y Ciencias Sociales');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fce,   'Pedagogía en Inglés');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fce,   'Pedagogía en Lengua Castellana y Comunicación');
+
+    v_car_med  := seq_carreras.NEXTVAL; INSERT INTO carreras VALUES (v_car_med,  v_fac_fmed,  'Medicina');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fmed,  'Bachillerato en Ciencias Biomédicas');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fmed,  'Bioingeniería Médica');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fmed,  'Química y Farmacia');
+
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_facaf, 'Agronomía');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_facaf, 'Ingeniería en Biotecnología');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_facaf, 'Ingeniería en Recursos Naturales');
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_facaf, 'Medicina Veterinaria');
+
+    INSERT INTO carreras VALUES (seq_carreras.NEXTVAL, v_fac_fcrf,  'Pedagogía en Religión y Filosofía');
+
     v_reg_maule := seq_regiones.NEXTVAL; INSERT INTO regiones VALUES (v_reg_maule, 'Región del Maule', 'VII');
     v_reg_ohig  := seq_regiones.NEXTVAL; INSERT INTO regiones VALUES (v_reg_ohig,  'Región del Libertador Gral. Bernardo O''Higgins', 'VI');
     v_reg_nuble := seq_regiones.NEXTVAL; INSERT INTO regiones VALUES (v_reg_nuble, 'Región de Ñuble', 'XVI');
@@ -2893,9 +2835,6 @@ BEGIN
     v_ciu_ranca  := seq_ciudades.NEXTVAL; INSERT INTO ciudades VALUES (v_ciu_ranca,  v_reg_ohig,  'Rancagua');
     v_ciu_chill  := seq_ciudades.NEXTVAL; INSERT INTO ciudades VALUES (v_ciu_chill,  v_reg_nuble, 'Chillán');
 
-    -- ------------------------------------------------------------------------
-    -- 5. UBICACIONES REALES
-    -- ------------------------------------------------------------------------
     v_ub_smiguel := seq_ubicaciones.NEXTVAL;
     INSERT INTO ubicaciones VALUES (v_ub_smiguel, v_ciu_talca, 'Campus San Miguel UCM', 'Av. San Miguel 3605, Talca', 'https://maps.google.com/?q=Universidad+Catolica+del+Maule+Campus+San+Miguel');
 
@@ -2923,9 +2862,6 @@ BEGIN
     v_ub_linares := seq_ubicaciones.NEXTVAL;
     INSERT INTO ubicaciones VALUES (v_ub_linares, v_ciu_lin, 'Plaza de Armas de Linares', 'Independencia 540, Linares', 'https://maps.google.com/?q=Plaza+de+Armas+Linares');
 
-    -- ------------------------------------------------------------------------
-    -- 6. TIPOS Y ESTADOS DE ACTIVIDAD
-    -- ------------------------------------------------------------------------
     v_tipo_feria  := seq_tipos_actividad.NEXTVAL; INSERT INTO tipos_actividad VALUES (v_tipo_feria,  'Feria Vocacional',     '#2563EB');
     v_tipo_puert  := seq_tipos_actividad.NEXTVAL; INSERT INTO tipos_actividad VALUES (v_tipo_puert,  'Puertas Abiertas',     '#16A34A');
     v_tipo_charla := seq_tipos_actividad.NEXTVAL; INSERT INTO tipos_actividad VALUES (v_tipo_charla, 'Charla en Colegio',    '#D97706');
@@ -2940,15 +2876,10 @@ BEGIN
     v_est_fin  := seq_estados_actividad.NEXTVAL; INSERT INTO estados_actividad VALUES (v_est_fin,  'FINALIZADA', 'Actividad cerrada y lista para validación de horas');
     v_est_canc := seq_estados_actividad.NEXTVAL; INSERT INTO estados_actividad VALUES (v_est_canc, 'CANCELADA',  'Actividad suspendida o cancelada');
 
-    -- ------------------------------------------------------------------------
-    -- 7. USUARIOS JERÁRQUICOS (1 SUPERADMIN + 2 ADMINS + 5 STAFF)
-    -- ------------------------------------------------------------------------
-    -- 7.1 Único SUPERADMIN
     v_usr_super := seq_usuarios.NEXTVAL;
     INSERT INTO usuarios (id_usuario, rut, correo, password_hash, nombre, apellido, id_rol, debe_cambiar_clave, activo, creado_por)
     VALUES (v_usr_super, '11.111.111-1', 'superadmin@ucm.cl', v_hash_demo, 'Superadmin', 'UCM', v_rol_super, 'N', 'S', NULL);
 
-    -- 7.2 Dos ADMINS
     v_adm_talca := seq_usuarios.NEXTVAL;
     INSERT INTO usuarios (id_usuario, rut, correo, password_hash, nombre, apellido, id_rol, debe_cambiar_clave, activo, creado_por)
     VALUES (v_adm_talca, '16.482.310-4', 'admin1.talca@ucm.cl', v_hash_demo, 'Admin1', 'Talca', v_rol_admin, 'N', 'S', v_usr_super);
@@ -2957,10 +2888,13 @@ BEGIN
     INSERT INTO usuarios (id_usuario, rut, correo, password_hash, nombre, apellido, id_rol, debe_cambiar_clave, activo, creado_por)
     VALUES (v_adm_cur, '17.920.514-K', 'admin2.curico@ucm.cl', v_hash_demo, 'Admin2', 'Curicó', v_rol_admin, 'N', 'S', v_usr_super);
 
-    -- 7.3 Cinco STAFF + sus PERFILES_STAFF
+    v_adm_carlos := seq_usuarios.NEXTVAL;
+    INSERT INTO usuarios (id_usuario, rut, correo, password_hash, nombre, apellido, id_rol, debe_cambiar_clave, activo, creado_por)
+    VALUES (v_adm_carlos, '15.741.892-3', 'c.castro@ucm.cl', v_hash_demo, 'Carlos', 'Castro', v_rol_admin, 'N', 'S', v_usr_super);
+
     v_s1 := seq_usuarios.NEXTVAL;
     INSERT INTO usuarios (id_usuario, rut, correo, password_hash, nombre, apellido, id_rol, debe_cambiar_clave, activo, creado_por)
-    VALUES (v_s1, '21.111.111-1', 'hizoka@alu.ucm.cl', v_hash_demo, 'Hizoka', 'Hernández', v_rol_staff, 'N', 'S', v_adm_talca);
+    VALUES (v_s1, '21.111.111-1', 'j.hernandez@alu.ucm.cl', v_hash_demo, 'Joaquín', 'Hernández', v_rol_staff, 'N', 'S', v_adm_talca);
     INSERT INTO perfiles_staff VALUES (v_s1, v_car_ici, 2024, '+56981111111', 'DISPONIBLE');
 
     v_s2 := seq_usuarios.NEXTVAL;
@@ -2970,179 +2904,143 @@ BEGIN
 
     v_s3 := seq_usuarios.NEXTVAL;
     INSERT INTO usuarios (id_usuario, rut, correo, password_hash, nombre, apellido, id_rol, debe_cambiar_clave, activo, creado_por)
-    VALUES (v_s3, '21.333.333-3', 'j.moya@alu.ucm.cl', v_hash_demo, 'Jo', 'Moya', v_rol_staff, 'N', 'S', v_adm_talca);
+    VALUES (v_s3, '21.333.333-3', 'r.torres@alu.ucm.cl', v_hash_demo, 'Rosario', 'Torres', v_rol_staff, 'N', 'S', v_adm_talca);
     INSERT INTO perfiles_staff VALUES (v_s3, v_car_enf, 2023, '+56983333333', 'DISPONIBLE');
 
     v_s4 := seq_usuarios.NEXTVAL;
     INSERT INTO usuarios (id_usuario, rut, correo, password_hash, nombre, apellido, id_rol, debe_cambiar_clave, activo, creado_por)
-    VALUES (v_s4, '21.444.444-4', 'd.gonzalez@alu.ucm.cl', v_hash_demo, 'Daniela', 'González', v_rol_staff, 'N', 'S', v_adm_cur);
+    VALUES (v_s4, '21.444.444-4', 'r.jana@alu.ucm.cl', v_hash_demo, 'Rodrigo', 'Jaña', v_rol_staff, 'N', 'S', v_adm_cur);
     INSERT INTO perfiles_staff VALUES (v_s4, v_car_ico, 2024, '+56984444444', 'DISPONIBLE');
 
-    v_s5 := seq_usuarios.NEXTVAL;
-    INSERT INTO usuarios (id_usuario, rut, correo, password_hash, nombre, apellido, id_rol, debe_cambiar_clave, activo, creado_por)
-    VALUES (v_s5, '21.555.555-5', 'e.lillo@alu.ucm.cl', v_hash_demo, 'Erick', 'Lillo', v_rol_staff, 'N', 'S', v_adm_cur);
-    INSERT INTO perfiles_staff VALUES (v_s5, v_car_pmat, 2023, '+56985555555', 'DISPONIBLE');
-
-    -- ------------------------------------------------------------------------
-    -- 8. DISPONIBILIDAD DE STAFF (Noviembre y Diciembre 2026)
-    -- ------------------------------------------------------------------------
     INSERT INTO disponibilidad_staff VALUES (seq_disponibilidad_staff.NEXTVAL, v_s1, DATE '2026-11-25', 'MANANA',   'DISPONIBLE');
     INSERT INTO disponibilidad_staff VALUES (seq_disponibilidad_staff.NEXTVAL, v_s1, DATE '2026-11-28', 'COMPLETO', 'DISPONIBLE');
     INSERT INTO disponibilidad_staff VALUES (seq_disponibilidad_staff.NEXTVAL, v_s2, DATE '2026-11-25', 'COMPLETO', 'RESERVADO');
     INSERT INTO disponibilidad_staff VALUES (seq_disponibilidad_staff.NEXTVAL, v_s2, DATE '2026-12-04', 'MANANA',   'RESERVADO');
     INSERT INTO disponibilidad_staff VALUES (seq_disponibilidad_staff.NEXTVAL, v_s3, DATE '2026-11-25', 'MANANA',   'RESERVADO');
     INSERT INTO disponibilidad_staff VALUES (seq_disponibilidad_staff.NEXTVAL, v_s4, DATE '2026-11-28', 'MANANA',   'RESERVADO');
-    INSERT INTO disponibilidad_staff VALUES (seq_disponibilidad_staff.NEXTVAL, v_s5, DATE '2026-12-10', 'COMPLETO', 'DISPONIBLE');
+    INSERT INTO disponibilidad_staff VALUES (seq_disponibilidad_staff.NEXTVAL, v_s4, DATE '2026-12-10', 'COMPLETO', 'DISPONIBLE');
 
-    -- ------------------------------------------------------------------------
-    -- 9. ACTIVIDADES (12 actividades 2do semestre 2026)
-    -- ------------------------------------------------------------------------
     v_act_01 := seq_actividades.NEXTVAL;
     INSERT INTO actividades VALUES (
         v_act_01, 'Feria Vocacional Maule Norte', 'Stand de difusión de carreras de Ingeniería y Salud para colegios de Talca.',
-        v_tipo_feria, v_ub_plaza_t, v_est_fin, DATE '2026-08-14', '09:00', 5.0, 4, NULL, v_adm_talca
+        v_tipo_feria, v_ub_plaza_t, v_est_fin, DATE '2026-08-14', '09:00', 5.0, 4, NULL, v_adm_talca, 10
     );
 
     v_act_02 := seq_actividades.NEXTVAL;
     INSERT INTO actividades VALUES (
         v_act_02, 'Charla Admisión Liceo Abate Molina', 'Presentación de becas, beneficios y vías de ingreso UCM a 4tos medios.',
-        v_tipo_charla, v_ub_lam, v_est_fin, DATE '2026-08-26', '10:30', 3.0, 3, NULL, v_adm_talca
+        v_tipo_charla, v_ub_lam, v_est_fin, DATE '2026-08-26', '10:30', 3.0, 3, NULL, v_adm_talca, 10
     );
 
     v_act_03 := seq_actividades.NEXTVAL;
     INSERT INTO actividades VALUES (
         v_act_03, 'Ensayo Nacional PAES UCM Talca', 'Apoyo logístico, acreditación y guía de salas en Campus San Miguel.',
-        v_tipo_paes, v_ub_smiguel, v_est_fin, DATE '2026-09-05', '08:00', 6.0, 5, NULL, v_adm_talca
+        v_tipo_paes, v_ub_smiguel, v_est_fin, DATE '2026-09-05', '08:00', 6.0, 5, NULL, v_adm_talca, 10
     );
 
     v_act_04 := seq_actividades.NEXTVAL;
     INSERT INTO actividades VALUES (
         v_act_04, 'Feria Estudiantil Curicó 2026', 'Orientación vocacional en Plaza de Armas de Curicó.',
-        v_tipo_feria, v_ub_plaza_c, v_est_fin, DATE '2026-09-24', '09:30', 4.5, 4, NULL, v_adm_cur
+        v_tipo_feria, v_ub_plaza_c, v_est_fin, DATE '2026-09-24', '09:30', 4.5, 4, NULL, v_adm_cur, 10
     );
 
     v_act_05 := seq_actividades.NEXTVAL;
     INSERT INTO actividades VALUES (
         v_act_05, 'Casa Abierta UCM San Miguel', 'Recorridos guiados por laboratorios, biblioteca y simuladores clínicos.',
-        v_tipo_puert, v_ub_smiguel, v_est_fin, DATE '2026-10-15', '09:00', 6.0, 5, NULL, v_adm_talca
+        v_tipo_puert, v_ub_smiguel, v_est_fin, DATE '2026-10-15', '09:00', 6.0, 5, NULL, v_adm_talca, 10
     );
 
     v_act_06 := seq_actividades.NEXTVAL;
     INSERT INTO actividades VALUES (
         v_act_06, 'Ceremonia Aniversario Institucional UCM', 'Protocolo, recepción de autoridades y acreditación de invitados.',
-        v_tipo_inst, v_ub_trm, v_est_fin, DATE '2026-10-28', '17:00', 4.0, 4, NULL, v_adm_talca
+        v_tipo_inst, v_ub_trm, v_est_fin, DATE '2026-10-28', '17:00', 4.0, 4, NULL, v_adm_talca, 10
     );
 
     v_act_07 := seq_actividades.NEXTVAL;
     INSERT INTO actividades VALUES (
         v_act_07, 'Expo Carreras Maule Sur - Linares', 'Atención de consultas de postulación y mallas curriculares.',
-        v_tipo_feria, v_ub_linares, v_est_fin, DATE '2026-11-10', '09:00', 5.0, 5, NULL, v_adm_cur
+        v_tipo_feria, v_ub_linares, v_est_fin, DATE '2026-11-10', '09:00', 5.0, 5, NULL, v_adm_cur, 10
     );
 
-    -- Actividad PUBLICADA y LLENA (2/2 cupos) -> lista para probar Lista de Espera
     v_act_08 := seq_actividades.NEXTVAL;
     INSERT INTO actividades VALUES (
         v_act_08, 'Jornada Puertas Abiertas Ingeniería y Salud', 'Tours guiados a delegaciones de colegios del Maule en Campus San Miguel.',
-        v_tipo_puert, v_ub_smiguel, v_est_pub, DATE '2026-11-25', '09:00', 4.0, 2, NULL, v_adm_talca
+        v_tipo_puert, v_ub_smiguel, v_est_pub, DATE '2026-11-25', '09:00', 4.0, 2, NULL, v_adm_talca, 10
     );
 
-    -- Actividad PUBLICADA con cupos libres (2/6) -> Hizoka y Blas pueden postular en vivo
     v_act_09 := seq_actividades.NEXTVAL;
     INSERT INTO actividades VALUES (
         v_act_09, 'Feria de Postulación y Beneficios Estudiantiles', 'Asesoría de gratuidad, FUAS y simulación de puntajes PAES.',
-        v_tipo_feria, v_ub_ext, v_est_pub, DATE '2026-11-28', '10:00', 5.0, 6, NULL, v_adm_talca
+        v_tipo_feria, v_ub_ext, v_est_pub, DATE '2026-11-28', '10:00', 5.0, 6, NULL, v_adm_talca, 10
     );
 
-    -- Actividad PUBLICADA con cupos libres (1/5) en Curicó
     v_act_10 := seq_actividades.NEXTVAL;
     INSERT INTO actividades VALUES (
         v_act_10, 'Orientación Postulación Admisión 2027 Curicó', 'Módulos presenciales de acompañamiento en Campus Nuestra Señora del Carmen.',
-        v_tipo_charla, v_ub_carmen, v_est_pub, DATE '2026-12-04', '09:30', 4.5, 5, NULL, v_adm_cur
+        v_tipo_charla, v_ub_carmen, v_est_pub, DATE '2026-12-04', '09:30', 4.5, 5, NULL, v_adm_cur, 10
     );
 
-    -- Actividad PROGRAMADA para publicación futura
     v_act_11 := seq_actividades.NEXTVAL;
     INSERT INTO actividades VALUES (
         v_act_11, 'Ensayo General Verano PAES', 'Jornada masiva de práctica en Gimnasio Regional de Talca.',
-        v_tipo_paes, v_ub_estadio, v_est_prog, DATE '2026-12-10', '08:30', 5.0, 4, TIMESTAMP '2026-12-01 09:00:00', v_adm_talca
+        v_tipo_paes, v_ub_estadio, v_est_prog, DATE '2026-12-10', '08:30', 5.0, 4, TIMESTAMP '2026-12-01 09:00:00', v_adm_talca, 10
     );
 
-    -- Actividad en BORRADOR (Admin puede publicarla desde el panel)
     v_act_12 := seq_actividades.NEXTVAL;
     INSERT INTO actividades VALUES (
         v_act_12, 'Bienvenida e Inducción Novatos Admisión 2027', 'Planificación preliminar de equipos guías por facultad.',
-        v_tipo_induc, v_ub_smiguel, v_est_borr, DATE '2026-12-15', '09:00', 6.0, 8, NULL, v_adm_talca
+        v_tipo_induc, v_ub_smiguel, v_est_borr, DATE '2026-12-15', '09:00', 6.0, 8, NULL, v_adm_carlos, 10
     );
 
-    -- ------------------------------------------------------------------------
-    -- 10. POSTULACIONES, HORAS VALIDADAS Y LISTA DE ESPERA (PARA LOS 5 STAFF)
-    -- ------------------------------------------------------------------------
-    -- Act 01 (Ago, FIN, 3/4)
     v_p := ins_post(v_act_01, v_s1, 'CONFIRMADA'); ins_reg(v_p, 'S', 5.0, 'Excelente disposición en stand FCI', v_adm_talca);
     v_p := ins_post(v_act_01, v_s2, 'CONFIRMADA'); ins_reg(v_p, 'S', 5.0, 'Cumplió turno completo', v_adm_talca);
     v_p := ins_post(v_act_01, v_s3, 'CONFIRMADA'); ins_reg(v_p, 'S', 5.0, 'Apoyo destacado en área Salud', v_adm_talca);
 
-    -- Act 02 (Ago, FIN, 3/3)
     v_p := ins_post(v_act_02, v_s3, 'CONFIRMADA'); ins_reg(v_p, 'S', 3.0, 'Charla fluida a 4tos medios', v_adm_talca);
     v_p := ins_post(v_act_02, v_s4, 'CONFIRMADA'); ins_reg(v_p, 'S', 3.0, 'Entrega completa de folletería', v_adm_talca);
-    v_p := ins_post(v_act_02, v_s5, 'CONFIRMADA'); ins_reg(v_p, 'S', 3.0, 'Puntual y comprometido', v_adm_talca);
+    v_p := ins_post(v_act_02, v_s1, 'CONFIRMADA'); ins_reg(v_p, 'S', 3.0, 'Puntual y comprometido', v_adm_talca);
 
-    -- Act 03 (Sep, FIN, 4/5 - incluye 1 inasistencia para métricas reales)
     v_p := ins_post(v_act_03, v_s1, 'CONFIRMADA'); ins_reg(v_p, 'S', 6.0, 'Coordinación puerta principal', v_adm_talca);
     v_p := ins_post(v_act_03, v_s2, 'CONFIRMADA'); ins_reg(v_p, 'S', 6.0, 'Apoyo acreditación salas A', v_adm_talca);
     v_p := ins_post(v_act_03, v_s4, 'CONFIRMADA'); ins_reg(v_p, 'S', 6.0, 'Excelente trato a postulantes', v_adm_talca);
-    v_p := ins_post(v_act_03, v_s5, 'CONFIRMADA'); ins_reg(v_p, 'N', 0.0, 'Inasistencia justificada por licencia médica', v_adm_talca);
+    v_p := ins_post(v_act_03, v_s3, 'CONFIRMADA'); ins_reg(v_p, 'N', 0.0, 'Inasistencia justificada por licencia médica', v_adm_talca);
 
-    -- Act 04 (Sep, FIN, 3/4)
     v_p := ins_post(v_act_04, v_s2, 'CONFIRMADA'); ins_reg(v_p, 'S', 4.5, 'Viaje y montaje stand Curicó', v_adm_cur);
     v_p := ins_post(v_act_04, v_s3, 'CONFIRMADA'); ins_reg(v_p, 'S', 4.5, 'Atención continua de consultas', v_adm_cur);
     v_p := ins_post(v_act_04, v_s4, 'CONFIRMADA'); ins_reg(v_p, 'S', 4.5, 'Jornada completada con éxito', v_adm_cur);
 
-    -- Act 05 (Oct, FIN, 5/5)
     v_p := ins_post(v_act_05, v_s1, 'CONFIRMADA'); ins_reg(v_p, 'S', 6.0, 'Guía laboratorio de computación', v_adm_talca);
     v_p := ins_post(v_act_05, v_s2, 'CONFIRMADA'); ins_reg(v_p, 'S', 6.0, 'Guía edificio ingeniería', v_adm_talca);
     v_p := ins_post(v_act_05, v_s3, 'CONFIRMADA'); ins_reg(v_p, 'S', 6.0, 'Demostración simulación clínica', v_adm_talca);
     v_p := ins_post(v_act_05, v_s4, 'CONFIRMADA'); ins_reg(v_p, 'S', 5.5, 'Retiro autorizado 30 min antes', v_adm_talca);
-    v_p := ins_post(v_act_05, v_s5, 'CONFIRMADA'); ins_reg(v_p, 'S', 6.0, 'Apoyo acreditación delegaciones', v_adm_talca);
 
-    -- Act 06 (Oct, FIN, 4/4 + lista de espera aceptada)
     v_p := ins_post(v_act_06, v_s1, 'CONFIRMADA'); ins_reg(v_p, 'S', 4.0, 'Soporte técnico escenario', v_adm_talca);
     v_p := ins_post(v_act_06, v_s3, 'CONFIRMADA'); ins_reg(v_p, 'S', 4.0, 'Protocolo ingreso autoridades', v_adm_talca);
     v_p := ins_post(v_act_06, v_s4, 'CONFIRMADA'); ins_reg(v_p, 'S', 4.0, 'Mesa de registro prensa', v_adm_talca);
-    v_p := ins_post(v_act_06, v_s5, 'ASIGNADA', v_adm_talca); ins_reg(v_p, 'S', 4.0, 'Ingresó desde lista de espera y cumplió', v_adm_talca);
+    v_p := ins_post(v_act_06, v_s2, 'ASIGNADA', v_adm_talca); ins_reg(v_p, 'S', 4.0, 'Ingresó desde lista de espera y cumplió', v_adm_talca);
     INSERT INTO lista_espera (id_lista_espera, id_actividad, id_usuario, estado_espera, resuelto_por, fecha_resolucion)
-    VALUES (seq_lista_espera.NEXTVAL, v_act_06, v_s5, 'ACEPTADA', v_adm_talca, SYSTIMESTAMP - 20);
+    VALUES (seq_lista_espera.NEXTVAL, v_act_06, v_s2, 'ACEPTADA', v_adm_talca, CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) - 20);
 
-    -- Act 07 (Nov 10, FIN, 4/5)
     v_p := ins_post(v_act_07, v_s1, 'CONFIRMADA'); ins_reg(v_p, 'S', 5.0, 'Lideró módulo de ingenierías', v_adm_cur);
     v_p := ins_post(v_act_07, v_s2, 'CONFIRMADA'); ins_reg(v_p, 'S', 5.0, 'Muy buena evaluación de colegios', v_adm_cur);
     v_p := ins_post(v_act_07, v_s3, 'CONFIRMADA'); ins_reg(v_p, 'S', 5.0, 'Apoyo traslado de pendones', v_adm_cur);
     v_p := ins_post(v_act_07, v_s4, 'CONFIRMADA'); ins_reg(v_p, 'S', 5.0, 'Cumplió horario completo', v_adm_cur);
 
-    -- Act 08 (Nov 25, PUBLICADA, 2/2 LLENA + 2 PENDIENTES en LISTA_ESPERA)
-    -- Hizoka (v_s1) queda libre para poder probar entrar a Lista de Espera en vivo
     v_p := ins_post(v_act_08, v_s2, 'CONFIRMADA');
     v_p := ins_post(v_act_08, v_s3, 'CONFIRMADA');
     INSERT INTO lista_espera (id_lista_espera, id_actividad, id_usuario, estado_espera)
     VALUES (seq_lista_espera.NEXTVAL, v_act_08, v_s4, 'PENDIENTE');
-    INSERT INTO lista_espera (id_lista_espera, id_actividad, id_usuario, estado_espera)
-    VALUES (seq_lista_espera.NEXTVAL, v_act_08, v_s5, 'PENDIENTE');
 
-    -- Act 09 (Nov 28, PUBLICADA, 2/6 -> quedan 4 cupos abiertos para postular en vivo)
     v_p := ins_post(v_act_09, v_s3, 'CONFIRMADA');
     v_p := ins_post(v_act_09, v_s4, 'CONFIRMADA');
 
-    -- Act 10 (Dic 04, PUBLICADA, 1/5 asignado manualmente por Admin2 Curicó)
     v_p := ins_post(v_act_10, v_s2, 'ASIGNADA', v_adm_cur);
 
     COMMIT;
-    DBMS_OUTPUT.PUT_LINE('Seed limpio UCM (1 Superadmin, 2 Admins, 5 Staff) cargado sin errores.');
+    DBMS_OUTPUT.PUT_LINE('Seed limpio UCM (1 Superadmin, 3 Admins, 4 Staff) cargado sin errores.');
 END;
 /
 
--- ============================================================================
--- VERIFICACIÓN FINAL INTEGRAL DEL SISTEMA
--- ============================================================================
 SELECT
     (SELECT COUNT(*) FROM user_tables)                                                          AS tablas,
     (SELECT COUNT(*) FROM user_sequences)                                                       AS secuencias,
@@ -3165,10 +3063,7 @@ SELECT u.id_usuario, r.nombre_rol, u.nombre || ' ' || u.apellido AS nombre_compl
   JOIN roles r ON r.id_rol = u.id_rol
  ORDER BY u.id_rol, u.id_usuario;
 
-
- -- ============================================================================
--- BLOQUE 4: CARGA COMPLETA DE REGIONES (16) Y COMUNAS (346) DE CHILE
--- ============================================================================
+-- 9. Carga de regiones y comunas de Chile
 DECLARE
     v_reg NUMBER;
 
@@ -3277,9 +3172,7 @@ BEGIN
 END;
 /
 
--- ============================================================================
--- VERIFICACIÓN FINAL INTEGRAL DEL SISTEMA
--- ============================================================================
+-- 10. Consultas de verificación
 SELECT
     (SELECT COUNT(*) FROM user_tables)                                                          AS tablas,
     (SELECT COUNT(*) FROM user_sequences)                                                       AS secuencias,
@@ -3289,7 +3182,9 @@ SELECT
     (SELECT COUNT(*) FROM user_errors)                                                          AS errores
 FROM dual;
 
-SELECT 'REGIONES'         AS entidad, COUNT(*) AS registros FROM regiones
+SELECT 'FACULTADES'       AS entidad, COUNT(*) AS registros FROM facultades
+UNION ALL SELECT 'CARRERAS',           COUNT(*) FROM carreras
+UNION ALL SELECT 'REGIONES',           COUNT(*) FROM regiones
 UNION ALL SELECT 'CIUDADES (COMUNAS)', COUNT(*) FROM ciudades
 UNION ALL SELECT 'USUARIOS',           COUNT(*) FROM usuarios
 UNION ALL SELECT 'PERFILES_STAFF',     COUNT(*) FROM perfiles_staff
