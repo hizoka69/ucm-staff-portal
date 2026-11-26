@@ -35,7 +35,9 @@ import UserAvatar from '../components/UserAvatar';
 import ReportesView from '../components/ReportesView';
 import MantenedoresView from '../components/MantenedoresView';
 import ChangePasswordModal from '../components/ChangePasswordModal';
+import InformeFotosModal from '../components/InformeFotosModal';
 import { getEstadoActividadBadge, getProcesoStyle } from '../utils/statusStyles';
+import { compressImage } from '../utils/imageCompress';
 
 const MESES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -317,6 +319,9 @@ export default function AdminPanel() {
   const [confirmDeleteStaff, setConfirmDeleteStaff] = useState(false);
   const [deletingStaff, setDeletingStaff] = useState(false);
 
+  // Modal Informe y fotos Staff
+  const [informeAct, setInformeAct] = useState(null);
+
   // Feedback y estados generales
   const [loading, setLoading] = useState(true);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -333,13 +338,14 @@ export default function AdminPanel() {
     if (!file) return;
     setUploadingPhoto(true);
     try {
+      const optimized = await compressImage(file, { maxSide: 400, quality: 0.85 });
       const fd = new FormData();
-      fd.append('file', file);
+      fd.append('file', optimized);
       const res = await api.post('/auth/foto', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       updateUserPhoto(res.data.foto_url);
-      showToast('success', 'Foto de perfil actualizada.');
+      showToast('success', 'Foto de perfil guardada permanentemente.');
     } catch (err) {
       showToast('error', getErrorMessage(err, 'No se pudo subir la imagen.'));
     } finally {
@@ -1378,6 +1384,14 @@ const handleRegionChange = (region) => {
                               className="px-3.5 py-1.5 rounded-full bg-white hover:bg-slate-100 border border-slate-200 text-xs font-bold text-[#0A1931] cursor-pointer transition"
                             >
                               Validar horas
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setInformeAct(selectedCalAct)}
+                              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#E6F5FC] hover:bg-[#D4EEFA] border border-[#A8DDF5] text-xs font-bold text-[#0369A1] cursor-pointer transition"
+                            >
+                              <Camera className="w-3.5 h-3.5" />
+                              Informe y fotos Staff
                             </button>
                             {selectedCalAct.cupos_ocupados === 0 && (
                               <button
@@ -2830,10 +2844,16 @@ const handleRegionChange = (region) => {
       </nav>
 
       <ChangePasswordModal
-  open={showPasswordModal}
-  onClose={() => setShowPasswordModal(false)}
-  onSuccess={(msg) => showToast('success', msg)}
-/>
+        open={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        onSuccess={(msg) => showToast('success', msg)}
+      />
+
+      <InformeFotosModal
+        open={Boolean(informeAct)}
+        actividad={informeAct}
+        onClose={() => setInformeAct(null)}
+      />
       
     </div>
 

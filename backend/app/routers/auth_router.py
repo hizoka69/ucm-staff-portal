@@ -1,16 +1,16 @@
 import re
 import uuid
-from pathlib import Path
 
+import oracledb
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.auth import create_access_token, get_current_user, hash_password, verify_password
-from app.db import call_proc_no_out, call_refcursor
+from app.db import call_proc_no_out, call_refcursor, get_connection, handle_oracle_error
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
 
-AVATARS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads" / "avatars"
 ALLOWED_IMAGE_TYPES = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
@@ -148,35 +148,65 @@ async def subir_foto_perfil(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
-    ext = ALLOWED_IMAGE_TYPES.get(file.content_type or "")
-    if not ext:
+    content_type = (file.content_type or "").lower()
+    if content_type not in ALLOWED_IMAGE_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Formato no soportado. Sube una imagen JPG, PNG o WebP.",
         )
 
     content = await file.read()
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo de imagen está vacío.",
+        )
     if len(content) > MAX_AVATAR_BYTES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="La imagen supera el máximo permitido de 3 MB.",
         )
 
-    AVATARS_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"user_{current_user['id_usuario']}_{uuid.uuid4().hex[:10]}{ext}"
-    dest = AVATARS_DIR / filename
-    dest.write_bytes(content)
-
-    old_url = current_user.get("foto_url") or ""
-    if old_url.startswith("/uploads/avatars/"):
-        old_path = AVATARS_DIR / Path(old_url).name
-        if old_path.exists() and old_path != dest:
-            old_path.unlink(missing_ok=True)
-
-    nueva_url = f"/uploads/avatars/{filename}"
-    call_proc_no_out("pkg_gest_usuarios.actualizar_foto", [current_user["id_usuario"], nueva_url])
+    nueva_url = f"/api/auth/avatar/{current_user['id_usuario']}?v={uuid.uuid4().hex[:8]}"
+    try:
+        with get_connection() as conn:
+            blob_var = conn.createlob(oracledb.DB_TYPE_BLOB)
+            blob_var.write(content)
+            with conn.cursor() as cur:
+                cur.callproc(
+                    "pkg_gest_usuarios.actualizar_foto_blob",
+                    [current_user["id_usuario"], nueva_url, blob_var, content_type],
+                )
+    except oracledb.DatabaseError as exc:
+        handle_oracle_error(exc)
 
     return {
         "foto_url": nueva_url,
-        "message": "Foto de perfil actualizada correctamente.",
+        "message": "Foto de perfil guardada permanentemente en Oracle.",
     }
+
+
+@router.get("/avatar/{id_usuario}")
+def obtener_avatar_usuario(id_usuario: int):
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur, conn.cursor() as out_cur:
+                cur.callproc("pkg_gest_usuarios.obtener_foto_blob", [id_usuario, out_cur])
+                row = out_cur.fetchone()
+                if not row or row[0] is None:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avatar no encontrado.")
+                raw = row[0].read() if hasattr(row[0], "read") else bytes(row[0])
+                mime = row[1] or "image/jpeg"
+    except HTTPException:
+        raise
+    except oracledb.DatabaseError as exc:
+        handle_oracle_error(exc)
+
+    if not raw:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avatar no encontrado.")
+
+    return Response(
+        content=raw,
+        media_type=mime,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )

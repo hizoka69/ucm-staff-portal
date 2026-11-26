@@ -5,6 +5,7 @@ import {
   BarChart3,
   Building2,
   Calendar,
+  Camera,
   Clock,
   RefreshCw,
   TrendingUp,
@@ -24,6 +25,7 @@ import {
   YAxis,
 } from 'recharts';
 import api, { getErrorMessage } from '../api/client';
+import InformeFotosModal from './InformeFotosModal';
 
 const MESES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -125,6 +127,7 @@ export default function ReportesView() {
   const [demandaTipo, setDemandaTipo] = useState([]);
   const [rankingStaff, setRankingStaff] = useState([]);
   const [cobertura, setCobertura] = useState([]);
+  const [informeAct, setInformeAct] = useState(null);
 
   const loadReports = useCallback(async () => {
     setLoading(true);
@@ -531,8 +534,11 @@ export default function ReportesView() {
                           {formatColLabel(col)}
                         </th>
                       ))}
-                      <th className="py-3 px-3 rounded-r-xl font-bold text-right">
+                      <th className="py-3 px-3 font-bold text-right">
                         Disponibilidad
+                      </th>
+                      <th className="py-3 px-3 rounded-r-xl font-bold text-right">
+                        Informe Staff
                       </th>
                     </tr>
                   </thead>
@@ -560,6 +566,20 @@ export default function ReportesView() {
                               </span>
                             )}
                           </td>
+                          <td className="py-3 px-3 text-right whitespace-nowrap">
+                            {row.id_actividad ? (
+                              <button
+                                type="button"
+                                onClick={() => setInformeAct(row)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#E6F5FC] hover:bg-[#D4EEFA] border border-[#A8DDF5] text-[#0369A1] text-xs font-bold transition cursor-pointer"
+                              >
+                                <Camera className="w-3.5 h-3.5" />
+                                Ver informe y fotos
+                              </button>
+                            ) : (
+                              <span className="text-slate-300">—</span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -570,6 +590,12 @@ export default function ReportesView() {
           </section>
         </>
       )}
+
+      <InformeFotosModal
+        open={Boolean(informeAct)}
+        actividad={informeAct}
+        onClose={() => setInformeAct(null)}
+      />
     </div>
   );
 }

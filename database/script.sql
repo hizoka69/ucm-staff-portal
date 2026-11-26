@@ -102,6 +102,8 @@ CREATE TABLE usuarios (
     nombre             VARCHAR2(50)    NOT NULL,
     apellido           VARCHAR2(50)    NOT NULL,
     foto_url           VARCHAR2(255),
+    foto_blob          BLOB,
+    foto_mime          VARCHAR2(50),
     id_rol             NUMBER          NOT NULL,
     debe_cambiar_clave CHAR(1)         DEFAULT 'S' NOT NULL,
     activo             CHAR(1)         DEFAULT 'S' NOT NULL,
@@ -170,12 +172,13 @@ CREATE TABLE actividades (
 );
 
 CREATE TABLE postulaciones (
-    id_postulacion     NUMBER        NOT NULL,
-    id_actividad       NUMBER        NOT NULL,
-    id_usuario         NUMBER        NOT NULL,
-    estado_postulacion VARCHAR2(20)  DEFAULT 'CONFIRMADA' NOT NULL,
-    fecha_postulacion  TIMESTAMP     DEFAULT CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) NOT NULL,
-    asignado_por       NUMBER,
+    id_postulacion         NUMBER         NOT NULL,
+    id_actividad           NUMBER         NOT NULL,
+    id_usuario             NUMBER         NOT NULL,
+    estado_postulacion     VARCHAR2(20)   DEFAULT 'CONFIRMADA' NOT NULL,
+    fecha_postulacion      TIMESTAMP      DEFAULT CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) NOT NULL,
+    asignado_por           NUMBER,
+    comentario_experiencia VARCHAR2(1000),
     CONSTRAINT pk_postulaciones PRIMARY KEY (id_postulacion),
     CONSTRAINT uq_post_act_usr UNIQUE (id_actividad, id_usuario),
     CONSTRAINT fk_post_actividad FOREIGN KEY (id_actividad) REFERENCES actividades (id_actividad),
@@ -228,6 +231,17 @@ CREATE TABLE auditoria_sistema (
     CONSTRAINT fk_aud_usuario FOREIGN KEY (id_usuario_ejecutor) REFERENCES usuarios (id_usuario)
 );
 
+CREATE TABLE fotos_actividad (
+    id_foto        NUMBER        NOT NULL,
+    id_postulacion NUMBER        NOT NULL,
+    nombre_archivo VARCHAR2(180) NOT NULL,
+    mime_type      VARCHAR2(50)  NOT NULL,
+    contenido_blob BLOB          NOT NULL,
+    fecha_subida   TIMESTAMP     DEFAULT CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) NOT NULL,
+    CONSTRAINT pk_fotos_actividad PRIMARY KEY (id_foto),
+    CONSTRAINT fk_foto_postulacion FOREIGN KEY (id_postulacion) REFERENCES postulaciones (id_postulacion) ON DELETE CASCADE
+);
+
 CREATE INDEX idx_usuarios_rol         ON usuarios (id_rol);
 CREATE INDEX idx_actividades_fecha    ON actividades (fecha_actividad);
 CREATE INDEX idx_actividades_estado   ON actividades (id_estado_actividad);
@@ -236,6 +250,7 @@ CREATE INDEX idx_post_usuario         ON postulaciones (id_usuario);
 CREATE INDEX idx_espera_actividad     ON lista_espera (id_actividad);
 CREATE INDEX idx_disp_usuario_fecha   ON disponibilidad_staff (id_usuario, fecha_disponible);
 CREATE INDEX idx_auditoria_fecha      ON auditoria_sistema (fecha_evento);
+CREATE INDEX idx_fotos_postulacion    ON fotos_actividad (id_postulacion);
 
 -- 3. Secuencias
 CREATE SEQUENCE seq_roles                START WITH 1 INCREMENT BY 1 NOCACHE;
@@ -253,6 +268,7 @@ CREATE SEQUENCE seq_postulaciones        START WITH 1 INCREMENT BY 1 NOCACHE;
 CREATE SEQUENCE seq_lista_espera         START WITH 1 INCREMENT BY 1 NOCACHE;
 CREATE SEQUENCE seq_registro_trabajo     START WITH 1 INCREMENT BY 1 NOCACHE;
 CREATE SEQUENCE seq_auditoria_sistema    START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_fotos_actividad      START WITH 1 INCREMENT BY 1 NOCACHE;
 
 -- 4. Triggers de validación y auditoría
 
@@ -579,6 +595,47 @@ BEGIN
         :NEW.validado_por
     );
 END trg_aud_registro_trabajo;
+/
+
+CREATE OR REPLACE TRIGGER trg_fotos_actividad_limite
+FOR INSERT OR UPDATE ON fotos_actividad
+COMPOUND TRIGGER
+    TYPE t_post_tab IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
+    g_posts t_post_tab;
+
+    BEFORE EACH ROW IS
+        v_estado VARCHAR2(20);
+    BEGIN
+        SELECT estado_postulacion INTO v_estado
+          FROM postulaciones
+         WHERE id_postulacion = :NEW.id_postulacion;
+
+        IF v_estado = 'CANCELADA' THEN
+            RAISE_APPLICATION_ERROR(-20019, 'No se pueden subir fotos sobre una postulación CANCELADA.');
+        END IF;
+
+        g_posts(g_posts.COUNT + 1) := :NEW.id_postulacion;
+    END BEFORE EACH ROW;
+
+    AFTER STATEMENT IS
+        v_total NUMBER;
+    BEGIN
+        FOR i IN 1 .. g_posts.COUNT LOOP
+            SELECT COUNT(*) INTO v_total
+              FROM fotos_actividad
+             WHERE id_postulacion = g_posts(i);
+
+            IF v_total > 5 THEN
+                RAISE_APPLICATION_ERROR(-20020, 'Máximo 5 fotos de recuerdo permitidas por actividad.');
+            END IF;
+        END LOOP;
+        g_posts.DELETE;
+    EXCEPTION
+        WHEN OTHERS THEN
+            g_posts.DELETE;
+            RAISE;
+    END AFTER STATEMENT;
+END trg_fotos_actividad_limite;
 /
 
 SELECT
@@ -1450,6 +1507,13 @@ CREATE OR REPLACE PACKAGE pkg_gest_usuarios AS
     PROCEDURE cambiar_clave(p_id_usuario IN NUMBER, p_nuevo_hash IN VARCHAR2);
     PROCEDURE cambiar_estado_activo(p_id_ejecutor IN NUMBER, p_id_usuario IN NUMBER, p_activo IN CHAR);
     PROCEDURE actualizar_foto(p_id_usuario IN NUMBER, p_foto_url IN VARCHAR2);
+    PROCEDURE actualizar_foto_blob(
+        p_id_usuario IN NUMBER,
+        p_foto_url   IN VARCHAR2,
+        p_foto_blob  IN BLOB,
+        p_foto_mime  IN VARCHAR2
+    );
+    PROCEDURE obtener_foto_blob(p_id_usuario IN NUMBER, p_cursor OUT SYS_REFCURSOR);
     PROCEDURE actualizar_credenciales(
         p_id_ejecutor   IN NUMBER,
         p_id_usuario    IN NUMBER,
@@ -1611,6 +1675,32 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_usuarios AS
         COMMIT;
     END;
 
+    PROCEDURE actualizar_foto_blob(
+        p_id_usuario IN NUMBER,
+        p_foto_url   IN VARCHAR2,
+        p_foto_blob  IN BLOB,
+        p_foto_mime  IN VARCHAR2
+    ) IS
+    BEGIN
+        UPDATE usuarios
+           SET foto_url  = TRIM(p_foto_url),
+               foto_blob = p_foto_blob,
+               foto_mime = TRIM(p_foto_mime)
+         WHERE id_usuario = p_id_usuario;
+        IF SQL%ROWCOUNT = 0 THEN
+            RAISE_APPLICATION_ERROR(-20201, 'Usuario no encontrado.');
+        END IF;
+        COMMIT;
+    END;
+
+    PROCEDURE obtener_foto_blob(p_id_usuario IN NUMBER, p_cursor OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_cursor FOR
+            SELECT foto_blob, foto_mime
+              FROM usuarios
+             WHERE id_usuario = p_id_usuario;
+    END;
+
     PROCEDURE actualizar_credenciales(
         p_id_ejecutor   IN NUMBER,
         p_id_usuario    IN NUMBER,
@@ -1695,6 +1785,10 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_usuarios AS
          WHERE id_usuario_ejecutor = p_id_usuario;
 
         IF v_rol_objetivo = 3 THEN
+            DELETE FROM fotos_actividad
+             WHERE id_postulacion IN (
+                 SELECT id_postulacion FROM postulaciones WHERE id_usuario = p_id_usuario
+             );
             DELETE FROM registro_trabajo
              WHERE id_postulacion IN (
                  SELECT id_postulacion FROM postulaciones WHERE id_usuario = p_id_usuario
@@ -1929,6 +2023,24 @@ CREATE OR REPLACE PACKAGE pkg_gest_postulaciones AS
     PROCEDURE cancelar_postulacion(p_id_postulacion IN NUMBER, p_id_solicitante IN NUMBER);
     PROCEDURE listar_por_actividad(p_id_actividad IN NUMBER, p_cursor OUT SYS_REFCURSOR);
     PROCEDURE listar_por_usuario(p_id_usuario IN NUMBER, p_cursor OUT SYS_REFCURSOR);
+    PROCEDURE actualizar_experiencia(
+        p_id_postulacion IN NUMBER,
+        p_id_usuario     IN NUMBER,
+        p_comentario     IN VARCHAR2
+    );
+    PROCEDURE agregar_foto_actividad(
+        p_id_postulacion IN NUMBER,
+        p_id_usuario     IN NUMBER,
+        p_nombre_archivo IN VARCHAR2,
+        p_mime_type      IN VARCHAR2,
+        p_contenido_blob IN BLOB,
+        p_id_out         OUT NUMBER
+    );
+    PROCEDURE eliminar_foto_actividad(p_id_foto IN NUMBER, p_id_solicitante IN NUMBER);
+    PROCEDURE listar_fotos_postulacion(p_id_postulacion IN NUMBER, p_cursor OUT SYS_REFCURSOR);
+    PROCEDURE obtener_foto_blob(p_id_foto IN NUMBER, p_cursor OUT SYS_REFCURSOR);
+    PROCEDURE listar_informe_actividad(p_id_actividad IN NUMBER, p_cursor OUT SYS_REFCURSOR);
+    PROCEDURE listar_fotos_actividad(p_id_actividad IN NUMBER, p_cursor OUT SYS_REFCURSOR);
 END pkg_gest_postulaciones;
 /
 
@@ -2124,7 +2236,9 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_postulaciones AS
             SELECT p.id_postulacion, p.id_actividad, a.titulo, a.fecha_actividad, a.hora_inicio,
                    a.cantidad_horas, ta.nombre_tipo, ta.color_hex, ea.nombre_estado,
                    ub.nombre_lugar, ci.nombre_ciudad,
-                   p.estado_postulacion, p.fecha_postulacion,
+                   p.estado_postulacion, p.fecha_postulacion, p.comentario_experiencia,
+                   (SELECT COUNT(*) FROM fotos_actividad fa
+                     WHERE fa.id_postulacion = p.id_postulacion) AS total_fotos,
                    rt.asistio, rt.horas_efectivas, rt.observaciones
               FROM postulaciones p
               JOIN actividades a            ON a.id_actividad        = p.id_actividad
@@ -2135,6 +2249,161 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_postulaciones AS
               LEFT JOIN registro_trabajo rt ON rt.id_postulacion     = p.id_postulacion
              WHERE p.id_usuario = p_id_usuario
              ORDER BY a.fecha_actividad DESC, a.hora_inicio;
+    END;
+
+    PROCEDURE actualizar_experiencia(
+        p_id_postulacion IN NUMBER,
+        p_id_usuario     IN NUMBER,
+        p_comentario     IN VARCHAR2
+    ) IS
+        v_dueno  NUMBER;
+        v_estado VARCHAR2(20);
+    BEGIN
+        BEGIN
+            SELECT id_usuario, estado_postulacion
+              INTO v_dueno, v_estado
+              FROM postulaciones
+             WHERE id_postulacion = p_id_postulacion;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                RAISE_APPLICATION_ERROR(-20242, 'Postulación no encontrada.');
+        END;
+
+        IF v_dueno <> p_id_usuario THEN
+            RAISE_APPLICATION_ERROR(-20240, 'Solo puedes editar la experiencia de tus propias postulaciones.');
+        END IF;
+
+        IF v_estado = 'CANCELADA' THEN
+            RAISE_APPLICATION_ERROR(-20241, 'No se puede registrar experiencia en una postulación cancelada.');
+        END IF;
+
+        UPDATE postulaciones
+           SET comentario_experiencia = TRIM(p_comentario)
+         WHERE id_postulacion = p_id_postulacion;
+        COMMIT;
+    END;
+
+    PROCEDURE agregar_foto_actividad(
+        p_id_postulacion IN NUMBER,
+        p_id_usuario     IN NUMBER,
+        p_nombre_archivo IN VARCHAR2,
+        p_mime_type      IN VARCHAR2,
+        p_contenido_blob IN BLOB,
+        p_id_out         OUT NUMBER
+    ) IS
+        v_dueno  NUMBER;
+        v_estado VARCHAR2(20);
+    BEGIN
+        BEGIN
+            SELECT id_usuario, estado_postulacion
+              INTO v_dueno, v_estado
+              FROM postulaciones
+             WHERE id_postulacion = p_id_postulacion;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                RAISE_APPLICATION_ERROR(-20242, 'Postulación no encontrada.');
+        END;
+
+        IF v_dueno <> p_id_usuario THEN
+            RAISE_APPLICATION_ERROR(-20240, 'Solo puedes subir fotos en tus propias postulaciones.');
+        END IF;
+
+        IF v_estado = 'CANCELADA' THEN
+            RAISE_APPLICATION_ERROR(-20241, 'No se pueden subir fotos en una postulación cancelada.');
+        END IF;
+
+        p_id_out := seq_fotos_actividad.NEXTVAL;
+        INSERT INTO fotos_actividad (
+            id_foto, id_postulacion, nombre_archivo, mime_type, contenido_blob
+        ) VALUES (
+            p_id_out, p_id_postulacion, TRIM(p_nombre_archivo), TRIM(p_mime_type), p_contenido_blob
+        );
+        COMMIT;
+    EXCEPTION
+        WHEN OTHERS THEN
+            ROLLBACK;
+            RAISE;
+    END;
+
+    PROCEDURE eliminar_foto_actividad(p_id_foto IN NUMBER, p_id_solicitante IN NUMBER) IS
+        v_rol   NUMBER;
+        v_dueno NUMBER;
+    BEGIN
+        SELECT id_rol INTO v_rol FROM usuarios WHERE id_usuario = p_id_solicitante;
+
+        BEGIN
+            SELECT p.id_usuario
+              INTO v_dueno
+              FROM fotos_actividad fa
+              JOIN postulaciones p ON p.id_postulacion = fa.id_postulacion
+             WHERE fa.id_foto = p_id_foto;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                RAISE_APPLICATION_ERROR(-20244, 'Fotografía no encontrada.');
+        END;
+
+        IF v_rol = 3 AND v_dueno <> p_id_solicitante THEN
+            RAISE_APPLICATION_ERROR(-20243, 'Solo puedes eliminar tus propias fotografías.');
+        END IF;
+
+        DELETE FROM fotos_actividad WHERE id_foto = p_id_foto;
+        COMMIT;
+    END;
+
+    PROCEDURE listar_fotos_postulacion(p_id_postulacion IN NUMBER, p_cursor OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_cursor FOR
+            SELECT id_foto, id_postulacion, nombre_archivo, mime_type, fecha_subida
+              FROM fotos_actividad
+             WHERE id_postulacion = p_id_postulacion
+             ORDER BY fecha_subida ASC, id_foto ASC;
+    END;
+
+    PROCEDURE obtener_foto_blob(p_id_foto IN NUMBER, p_cursor OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_cursor FOR
+            SELECT nombre_archivo, mime_type, contenido_blob
+              FROM fotos_actividad
+             WHERE id_foto = p_id_foto;
+    END;
+
+    PROCEDURE listar_informe_actividad(p_id_actividad IN NUMBER, p_cursor OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_cursor FOR
+            SELECT p.id_postulacion, p.id_actividad, p.id_usuario,
+                   u.rut, u.nombre, u.apellido, u.correo, u.foto_url,
+                   c.nombre_carrera,
+                   p.estado_postulacion, p.comentario_experiencia,
+                   rt.asistio, rt.horas_efectivas, rt.observaciones,
+                   (SELECT COUNT(*) FROM fotos_actividad fa
+                     WHERE fa.id_postulacion = p.id_postulacion) AS total_fotos
+              FROM postulaciones p
+              JOIN usuarios u               ON u.id_usuario      = p.id_usuario
+              LEFT JOIN perfiles_staff ps   ON ps.id_usuario     = u.id_usuario
+              LEFT JOIN carreras c          ON c.id_carrera      = ps.id_carrera
+              LEFT JOIN registro_trabajo rt ON rt.id_postulacion = p.id_postulacion
+             WHERE p.id_actividad = p_id_actividad
+               AND p.estado_postulacion <> 'CANCELADA'
+             ORDER BY
+                   CASE
+                       WHEN p.comentario_experiencia IS NOT NULL
+                         OR EXISTS (SELECT 1 FROM fotos_actividad fa WHERE fa.id_postulacion = p.id_postulacion)
+                       THEN 0
+                       ELSE 1
+                   END,
+                   u.apellido, u.nombre;
+    END;
+
+    PROCEDURE listar_fotos_actividad(p_id_actividad IN NUMBER, p_cursor OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_cursor FOR
+            SELECT fa.id_foto, fa.id_postulacion, p.id_usuario,
+                   fa.nombre_archivo, fa.mime_type, fa.fecha_subida
+              FROM fotos_actividad fa
+              JOIN postulaciones p ON p.id_postulacion = fa.id_postulacion
+             WHERE p.id_actividad = p_id_actividad
+               AND p.estado_postulacion <> 'CANCELADA'
+             ORDER BY fa.id_postulacion, fa.fecha_subida ASC, fa.id_foto ASC;
     END;
 END pkg_gest_postulaciones;
 /

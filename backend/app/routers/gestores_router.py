@@ -1,9 +1,11 @@
 from datetime import datetime
 from pathlib import Path
+import re
 from typing import Optional
 
 import oracledb
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.auth import get_current_user, hash_password, require_roles
@@ -85,6 +87,24 @@ class ValidarTrabajoIn(BaseModel):
     asistio: str = Field(..., pattern=r"^[SNsn]$")
     horas_efectivas: float = Field(..., ge=0, le=24)
     observaciones: Optional[str] = Field(default=None, max_length=300)
+
+
+class ExperienciaIn(BaseModel):
+    comentario: Optional[str] = Field(default=None, max_length=1000)
+
+
+ALLOWED_PHOTO_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
+MAX_ACTIVITY_PHOTO_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+def _safe_filename(name: str, fallback: str = "foto_staff.jpg") -> str:
+    clean = re.sub(r"[^A-Za-z0-9._-]", "_", (name or "").strip())
+    clean = clean.strip("._")
+    return clean[:120] if clean else fallback
 
 
 # ============================================================================
@@ -345,6 +365,161 @@ def postulaciones_por_actividad(id_actividad: int, _=Depends(admin_or_super)):
 @router.get("/postulaciones/mis-postulaciones")
 def mis_postulaciones(current_user: dict = Depends(only_staff)):
     return call_refcursor("pkg_gest_postulaciones.listar_por_usuario", [current_user["id_usuario"]])
+
+
+@router.put("/postulaciones/{id_postulacion}/experiencia")
+def actualizar_experiencia_postulacion(
+    id_postulacion: int,
+    payload: ExperienciaIn,
+    current_user: dict = Depends(only_staff),
+):
+    call_proc_no_out(
+        "pkg_gest_postulaciones.actualizar_experiencia",
+        [id_postulacion, current_user["id_usuario"], payload.comentario],
+    )
+    return {"message": "Experiencia guardada correctamente."}
+
+
+@router.get("/postulaciones/{id_postulacion}/fotos")
+def listar_fotos_postulacion(
+    id_postulacion: int,
+    _=Depends(get_current_user),
+):
+    fotos = call_refcursor("pkg_gest_postulaciones.listar_fotos_postulacion", [id_postulacion])
+    for f in fotos:
+        fid = f["id_foto"]
+        f["url"] = f"/api/gestores/postulaciones/fotos/{fid}/archivo"
+        f["download_url"] = f"/api/gestores/postulaciones/fotos/{fid}/archivo?download=1"
+    return fotos
+
+
+@router.post("/postulaciones/{id_postulacion}/fotos", status_code=status.HTTP_201_CREATED)
+async def subir_foto_actividad(
+    id_postulacion: int,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(only_staff),
+):
+    content_type = (file.content_type or "").lower()
+    ext = ALLOWED_PHOTO_TYPES.get(content_type)
+    if not ext:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Formato no soportado. Sube imágenes JPG, PNG o WebP.",
+        )
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo de imagen está vacío.",
+        )
+    if len(content) > MAX_ACTIVITY_PHOTO_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fotografía supera el máximo permitido de 5 MB.",
+        )
+
+    nombre = _safe_filename(file.filename or f"recuerdo_{id_postulacion}{ext}", f"recuerdo_{id_postulacion}{ext}")
+    if "." not in nombre:
+        nombre = f"{nombre}{ext}"
+
+    try:
+        with get_connection() as conn:
+            blob_var = conn.createlob(oracledb.DB_TYPE_BLOB)
+            blob_var.write(content)
+            with conn.cursor() as cur:
+                out_id = cur.var(oracledb.NUMBER)
+                cur.callproc(
+                    "pkg_gest_postulaciones.agregar_foto_actividad",
+                    [id_postulacion, current_user["id_usuario"], nombre, content_type, blob_var, out_id],
+                )
+                foto_id = int(out_id.getvalue())
+    except oracledb.DatabaseError as exc:
+        handle_oracle_error(exc)
+
+    return {
+        "id_foto": foto_id,
+        "id_postulacion": id_postulacion,
+        "nombre_archivo": nombre,
+        "mime_type": content_type,
+        "url": f"/api/gestores/postulaciones/fotos/{foto_id}/archivo",
+        "download_url": f"/api/gestores/postulaciones/fotos/{foto_id}/archivo?download=1",
+        "message": "Fotografía guardada correctamente.",
+    }
+
+
+@router.delete("/postulaciones/fotos/{id_foto}")
+def eliminar_foto_actividad(
+    id_foto: int,
+    current_user: dict = Depends(get_current_user),
+):
+    call_proc_no_out(
+        "pkg_gest_postulaciones.eliminar_foto_actividad",
+        [id_foto, current_user["id_usuario"]],
+    )
+    return {"message": "Fotografía eliminada correctamente."}
+
+
+@router.get("/postulaciones/fotos/{id_foto}/archivo")
+def obtener_archivo_foto_actividad(
+    id_foto: int,
+    download: bool = Query(default=False),
+):
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur, conn.cursor() as out_cur:
+                cur.callproc("pkg_gest_postulaciones.obtener_foto_blob", [id_foto, out_cur])
+                row = out_cur.fetchone()
+                if not row or row[2] is None:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fotografía no encontrada.")
+                nombre = _safe_filename(row[0] or f"foto_{id_foto}.jpg", f"foto_{id_foto}.jpg")
+                mime = row[1] or "image/jpeg"
+                raw = row[2].read() if hasattr(row[2], "read") else bytes(row[2])
+    except HTTPException:
+        raise
+    except oracledb.DatabaseError as exc:
+        handle_oracle_error(exc)
+
+    if not raw:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fotografía no encontrada.")
+
+    headers = {"Cache-Control": "public, max-age=3600"}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{nombre}"'
+    return Response(content=raw, media_type=mime, headers=headers)
+
+
+@router.get("/actividades/{id_actividad}/informe-staff")
+def informe_staff_actividad(
+    id_actividad: int,
+    _=Depends(admin_or_super),
+):
+    registros = call_refcursor("pkg_gest_postulaciones.listar_informe_actividad", [id_actividad])
+    fotos = call_refcursor("pkg_gest_postulaciones.listar_fotos_actividad", [id_actividad])
+
+    fotos_por_post: dict[int, list[dict]] = {}
+    for f in fotos:
+        fid = f["id_foto"]
+        item = {
+            **f,
+            "url": f"/api/gestores/postulaciones/fotos/{fid}/archivo",
+            "download_url": f"/api/gestores/postulaciones/fotos/{fid}/archivo?download=1",
+        }
+        fotos_por_post.setdefault(f["id_postulacion"], []).append(item)
+
+    total_comentarios = 0
+    for r in registros:
+        r["fotos"] = fotos_por_post.get(r["id_postulacion"], [])
+        if r.get("comentario_experiencia"):
+            total_comentarios += 1
+
+    return {
+        "id_actividad": id_actividad,
+        "total_participantes": len(registros),
+        "total_comentarios": total_comentarios,
+        "total_fotos": len(fotos),
+        "registros": registros,
+    }
 
 
 # ============================================================================

@@ -12,6 +12,7 @@ import {
   Compass,
   ExternalLink,
   GraduationCap,
+  Image as ImageIcon,
   KeyRound,
   ListChecks,
   LogOut,
@@ -21,16 +22,18 @@ import {
   Search,
   Store,
   Trash2,
+  Upload,
   User,
   Users,
   X,
 } from 'lucide-react';
-import api, { getErrorMessage } from '../api/client';
+import api, { getErrorMessage, resolveAssetUrl } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import UcmLogo from '../components/UcmLogo';
 import UserAvatar from '../components/UserAvatar';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import { getProcesoStyle } from '../utils/statusStyles';
+import { compressImage } from '../utils/imageCompress';
 
 const MESES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -142,6 +145,8 @@ export default function StaffPortal() {
   const [actSearch, setActSearch] = useState('');
   const [postSearch, setPostSearch] = useState('');
   const [perfilSearch, setPerfilSearch] = useState('');
+  const [perfilDayFilter, setPerfilDayFilter] = useState(null);
+  const [perfilStatusFilter, setPerfilStatusFilter] = useState(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   const [actividades, setActividades] = useState([]);
@@ -175,6 +180,16 @@ export default function StaffPortal() {
   const [dispBloque, setDispBloque] = useState('MANANA');
   const [savingDisp, setSavingDisp] = useState(false);
 
+  // Modal de experiencia y fotos de recuerdo (hasta 5 fotos por postulación)
+  const expPhotoInputRef = useRef(null);
+  const [expModalPost, setExpModalPost] = useState(null);
+  const [expComment, setExpComment] = useState('');
+  const [expPhotos, setExpPhotos] = useState([]);
+  const [expLoadingPhotos, setExpLoadingPhotos] = useState(false);
+  const [expSavingComment, setExpSavingComment] = useState(false);
+  const [expUploadingPhotos, setExpUploadingPhotos] = useState(false);
+  const [expDeletingPhotoId, setExpDeletingPhotoId] = useState(null);
+
   const showToast = (type, text) => {
     setToast({ type, text });
     setTimeout(() => setToast(null), 4500);
@@ -185,18 +200,129 @@ export default function StaffPortal() {
     if (!file) return;
     setUploadingPhoto(true);
     try {
+      const optimized = await compressImage(file, { maxSide: 400, quality: 0.85 });
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', optimized);
       const res = await api.post('/auth/foto', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       updateUserPhoto(res.data.foto_url);
-      showToast('success', 'Foto de perfil actualizada.');
+      showToast('success', 'Foto de perfil guardada permanentemente.');
     } catch (err) {
       showToast('error', getErrorMessage(err, 'No se pudo subir la imagen.'));
     } finally {
       setUploadingPhoto(false);
       e.target.value = '';
+    }
+  };
+
+  const openExpModal = async (post) => {
+    setExpModalPost(post);
+    setExpComment(post.comentario_experiencia || '');
+    setExpPhotos([]);
+    setExpLoadingPhotos(true);
+    try {
+      const res = await api.get(`/gestores/postulaciones/${post.id_postulacion}/fotos`);
+      setExpPhotos(res.data || []);
+    } catch (err) {
+      showToast('error', getErrorMessage(err, 'No se pudieron cargar las fotografías.'));
+    } finally {
+      setExpLoadingPhotos(false);
+    }
+  };
+
+  const handleSaveExperiencia = async (e) => {
+    e.preventDefault();
+    if (!expModalPost) return;
+    setExpSavingComment(true);
+    try {
+      const texto = expComment.trim() || null;
+      await api.put(`/gestores/postulaciones/${expModalPost.id_postulacion}/experiencia`, {
+        comentario: texto,
+      });
+      setExpModalPost((prev) => (prev ? { ...prev, comentario_experiencia: texto } : null));
+      setMisPostulaciones((prev) =>
+        prev.map((item) =>
+          item.id_postulacion === expModalPost.id_postulacion
+            ? { ...item, comentario_experiencia: texto }
+            : item
+        )
+      );
+      showToast('success', 'Experiencia guardada correctamente.');
+    } catch (err) {
+      showToast('error', getErrorMessage(err, 'No se pudo guardar tu experiencia.'));
+    } finally {
+      setExpSavingComment(false);
+    }
+  };
+
+  const handleUploadExpPhotos = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length || !expModalPost) return;
+
+    const disponibles = Math.max(5 - expPhotos.length, 0);
+    if (disponibles === 0) {
+      showToast('error', 'Ya alcanzaste el máximo de 5 fotografías en esta actividad.');
+      return;
+    }
+
+    const toUpload = files.slice(0, disponibles);
+    if (files.length > disponibles) {
+      showToast('error', `Solo quedaban ${disponibles} cupo(s) de foto; se subirán las primeras ${disponibles}.`);
+    }
+
+    setExpUploadingPhotos(true);
+    let subidas = 0;
+    try {
+      for (const rawFile of toUpload) {
+        const optimized = await compressImage(rawFile, { maxSide: 1600, quality: 0.85 });
+        const fd = new FormData();
+        fd.append('file', optimized);
+        const res = await api.post(`/gestores/postulaciones/${expModalPost.id_postulacion}/fotos`, fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        setExpPhotos((prev) => [...prev, res.data]);
+        subidas += 1;
+      }
+      if (subidas > 0) {
+        setMisPostulaciones((prev) =>
+          prev.map((item) =>
+            item.id_postulacion === expModalPost.id_postulacion
+              ? { ...item, total_fotos: Number(item.total_fotos || 0) + subidas }
+              : item
+          )
+        );
+        showToast(
+          'success',
+          subidas === 1 ? 'Fotografía subida correctamente.' : `${subidas} fotografías subidas correctamente.`
+        );
+      }
+    } catch (err) {
+      showToast('error', getErrorMessage(err, 'Error al subir fotografía.'));
+    } finally {
+      setExpUploadingPhotos(false);
+    }
+  };
+
+  const handleDeleteExpPhoto = async (idFoto) => {
+    if (!expModalPost) return;
+    setExpDeletingPhotoId(idFoto);
+    try {
+      await api.delete(`/gestores/postulaciones/fotos/${idFoto}`);
+      setExpPhotos((prev) => prev.filter((f) => f.id_foto !== idFoto));
+      setMisPostulaciones((prev) =>
+        prev.map((item) =>
+          item.id_postulacion === expModalPost.id_postulacion
+            ? { ...item, total_fotos: Math.max(Number(item.total_fotos || 1) - 1, 0) }
+            : item
+        )
+      );
+      showToast('success', 'Fotografía eliminada.');
+    } catch (err) {
+      showToast('error', getErrorMessage(err, 'No se pudo eliminar la fotografía.'));
+    } finally {
+      setExpDeletingPhotoId(null);
     }
   };
 
@@ -499,44 +625,33 @@ export default function StaffPortal() {
     }
     setMes(nextM);
     setAnio(nextY);
+    setPerfilDayFilter(null);
   };
 
-  const monthDaysMap = useMemo(() => {
-    const map = {};
-    (resumenMes.detalle || []).forEach((item) => {
-      const p = parseIsoDate(item.fecha_actividad);
-      if (p && p.month === mes && p.year === anio) {
-        map[p.day] = item.asistio === 'S' ? 'VALIDADA' : 'INASISTENCIA';
-      }
-    });
-    misPostulaciones.forEach((item) => {
-      const p = parseIsoDate(item.fecha_actividad);
-      if (
-        p &&
-        p.month === mes &&
-        p.year === anio &&
-        ['CONFIRMADA', 'ASIGNADA'].includes(item.estado_postulacion) &&
-        !map[p.day]
-      ) {
-        map[p.day] = item.estado_postulacion;
-      }
-    });
-    return map;
-  }, [resumenMes, misPostulaciones, mes, anio]);
+  const todayInfo = useMemo(() => {
+    const now = new Date();
+    return { day: now.getDate(), month: now.getMonth() + 1, year: now.getFullYear() };
+  }, []);
 
-  const perfilMonthActivities = useMemo(() => {
+  const perfilAllMonthActivities = useMemo(() => {
     const seen = new Set();
     const rows = [];
     (resumenMes.detalle || []).forEach((d) => {
       seen.add(d.id_actividad);
+      const parsed = parseIsoDate(d.fecha_actividad);
       rows.push({
         id: `reg-${d.id_registro}`,
+        idActividad: d.id_actividad,
         titulo: d.titulo,
         horas: d.horas_efectivas,
+        horaInicio: d.hora_inicio || '',
+        lugar: d.nombre_lugar || '',
+        ciudad: d.nombre_ciudad || '',
         estado: d.asistio === 'S' ? 'Validada' : 'Inasistencia',
         procesoKey: d.asistio === 'S' ? 'VALIDADA' : 'INASISTENCIA',
         completed: d.asistio === 'S',
         fecha: d.fecha_actividad,
+        day: parsed?.day || null,
       });
     });
     misPostulaciones.forEach((p) => {
@@ -550,19 +665,81 @@ export default function StaffPortal() {
       ) {
         rows.push({
           id: `post-${p.id_postulacion}`,
+          idActividad: p.id_actividad,
           titulo: p.titulo,
           horas: p.cantidad_horas,
+          horaInicio: p.hora_inicio || '',
+          lugar: p.nombre_lugar || '',
+          ciudad: p.nombre_ciudad || '',
           estado: p.estado_postulacion === 'ASIGNADA' ? 'Asignada' : 'Confirmada',
           procesoKey: p.estado_postulacion,
           completed: false,
           fecha: p.fecha_actividad,
+          day: parsed.day,
         });
       }
     });
+    return rows.sort((a, b) => (a.day || 0) - (b.day || 0));
+  }, [resumenMes, misPostulaciones, mes, anio]);
+
+  const monthDaysMap = useMemo(() => {
+    const map = {};
+    perfilAllMonthActivities.forEach((item) => {
+      if (item.day && !map[item.day]) {
+        map[item.day] = item.procesoKey;
+      }
+    });
+    return map;
+  }, [perfilAllMonthActivities]);
+
+  const monthDayTitlesMap = useMemo(() => {
+    const map = {};
+    perfilAllMonthActivities.forEach((item) => {
+      if (!item.day) return;
+      if (!map[item.day]) map[item.day] = [];
+      map[item.day].push(`${item.titulo} (${item.estado})`);
+    });
+    return map;
+  }, [perfilAllMonthActivities]);
+
+  const perfilMonthActivities = useMemo(() => {
     const q = normalizeSearchText(perfilSearch);
-    if (!q) return rows;
-    return rows.filter((r) => normalizeSearchText(`${r.titulo} ${r.estado} ${r.fecha}`).includes(q));
-  }, [resumenMes, misPostulaciones, mes, anio, perfilSearch]);
+    return perfilAllMonthActivities.filter((r) => {
+      if (perfilDayFilter && r.day !== perfilDayFilter) return false;
+      if (perfilStatusFilter && r.procesoKey !== perfilStatusFilter) return false;
+      if (!q) return true;
+      return normalizeSearchText(
+        `${r.titulo} ${r.estado} ${r.lugar} ${r.ciudad} ${r.fecha}`
+      ).includes(q);
+    });
+  }, [perfilAllMonthActivities, perfilDayFilter, perfilStatusFilter, perfilSearch]);
+
+  const proximosTurnosCount = useMemo(
+    () =>
+      misPostulaciones.filter(
+        (p) =>
+          ['CONFIRMADA', 'ASIGNADA'].includes(p.estado_postulacion) &&
+          !p.asistio &&
+          p.nombre_estado !== 'FINALIZADA'
+      ).length,
+    [misPostulaciones]
+  );
+
+  const handleOpenPerfilActivity = (item) => {
+    const existsInPublished = todasActividades.some((a) => a.id_actividad === item.idActividad);
+    if (existsInPublished) {
+      setFiltroTipo('Todas');
+      setActSearch('');
+      setActiveTab('actividades');
+      setSelectedActId(item.idActividad);
+      if (window.innerWidth < 1024) {
+        setMobileDetailOpen(true);
+      }
+      return;
+    }
+    setPostSearch(item.titulo || '');
+    setActiveTab('calendario');
+  };
 
   const monthCells = useMemo(() => buildMonthGrid(anio, mes), [anio, mes]);
 
@@ -1497,9 +1674,14 @@ export default function StaffPortal() {
                           <p className="text-xs text-slate-500 truncate">
                             {p.nombre_lugar}, {p.nombre_ciudad}
                           </p>
+                          {p.comentario_experiencia && (
+                            <p className="text-[11px] text-[#0369A1] mt-1 line-clamp-1 italic">
+                              &ldquo;{p.comentario_experiencia}&rdquo;
+                            </p>
+                          )}
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
                           {p.asistio === 'S' ? (
                             <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getProcesoStyle('VALIDADA').badge}`}>
                               Validada · {p.horas_efectivas}h
@@ -1516,6 +1698,19 @@ export default function StaffPortal() {
                             <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getProcesoStyle(p.estado_postulacion).badge}`}>
                               {p.estado_postulacion === 'ASIGNADA' ? 'Asignada' : 'Confirmada'}
                             </span>
+                          )}
+
+                          {p.estado_postulacion !== 'CANCELADA' && (
+                            <button
+                              type="button"
+                              onClick={() => openExpModal(p)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#E6F5FC] hover:bg-[#D4EEFA] border border-[#A8DDF5] text-[#0369A1] text-xs font-semibold transition cursor-pointer"
+                            >
+                              <Camera className="w-3.5 h-3.5" />
+                              {p.comentario_experiencia || Number(p.total_fotos || 0) > 0
+                                ? `Experiencia (${Number(p.total_fotos || 0)}/5)`
+                                : 'Experiencia / Fotos'}
+                            </button>
                           )}
 
                           {puedeCancelar && (
@@ -1670,6 +1865,15 @@ export default function StaffPortal() {
                   <KeyRound className="w-3.5 h-3.5 text-[#00A9E0]" />
                   Cambiar contraseña
                 </button>
+                <a
+                  href="https://www.sii.cl/servicios_online/1040-1287.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2.5 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-[#E6F5FC] hover:bg-[#D4EEFA] border border-[#A8DDF5] text-[#0369A1] text-xs font-bold transition"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Ir a emitir boleta (SII)
+                </a>
               </div>
             </div>
 
@@ -1764,90 +1968,143 @@ export default function StaffPortal() {
           </div>
 
           {/* PERFIL PC */}
-          <div className="hidden lg:grid max-w-6xl mx-auto px-8 py-10 grid-cols-12 gap-8 items-start">
-            <section className="col-span-4 bg-white rounded-3xl shadow-sm border border-slate-200/80 overflow-hidden">
-              <div className="h-32 ucm-banner-gradient" />
-              <div className="px-7 pb-8 text-center">
-                <div className="-mt-14 relative inline-block">
-                  <UserAvatar
-                    fotoUrl={user.foto_url}
-                    nombre={user.nombre}
-                    apellido={user.apellido}
-                    size="xl"
-                    className="border-[5px] border-white shadow-lg"
-                  />
-                  <button
-                    type="button"
-                    disabled={uploadingPhoto}
-                    onClick={() => fileInputRef.current?.click()}
-                    title="Cambiar foto de perfil"
-                    className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-[#0A1931] hover:bg-[#00A9E0] text-white border-2 border-white flex items-center justify-center shadow-md transition cursor-pointer disabled:opacity-60"
-                  >
-                    <Camera className="w-4 h-4" />
-                  </button>
-                </div>
+          <div className="hidden lg:grid max-w-[1400px] mx-auto px-8 py-8 grid-cols-12 gap-7 items-start">
+            <div className="col-span-4 space-y-5">
+              <section className="bg-white rounded-3xl shadow-sm border border-slate-200/80 overflow-hidden">
+                <div className="h-28 ucm-banner-gradient" />
+                <div className="px-7 pb-7 text-center">
+                  <div className="-mt-14 relative inline-block">
+                    <UserAvatar
+                      fotoUrl={user.foto_url}
+                      nombre={user.nombre}
+                      apellido={user.apellido}
+                      size="xl"
+                      className="border-[5px] border-white shadow-lg"
+                    />
+                    <button
+                      type="button"
+                      disabled={uploadingPhoto}
+                      onClick={() => fileInputRef.current?.click()}
+                      title="Cambiar foto de perfil"
+                      className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-[#0A1931] hover:bg-[#00A9E0] text-white border-2 border-white flex items-center justify-center shadow-md transition cursor-pointer disabled:opacity-60"
+                    >
+                      <Camera className="w-4 h-4" />
+                    </button>
+                  </div>
 
-                <div className="mt-4">
-                  <span className="inline-block px-4 py-1 rounded-full bg-[#E6F7FD] text-[#007AA8] text-xs font-bold tracking-widest uppercase">
-                    STAFF
+                  <div className="mt-3.5">
+                    <span className="inline-block px-4 py-1 rounded-full bg-[#E6F5FC] border border-[#A8DDF5] text-[#0369A1] text-xs font-bold tracking-widest uppercase">
+                      STAFF
+                    </span>
+                  </div>
+
+                  <h2 className="mt-3 text-2xl font-extrabold text-[#0A1931]">
+                    {user.nombre} {user.apellido}
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">{user.correo}</p>
+
+                  <div className="mt-5 p-4 rounded-2xl bg-[#F4F8FB] border border-slate-200/60 space-y-2.5 text-left text-sm text-[#0A1931]">
+                    <div className="flex items-center gap-2.5">
+                      <GraduationCap className="w-4 h-4 text-[#00A9E0] shrink-0" />
+                      <span className="truncate">
+                        <strong className="font-bold">Carrera:</strong>{' '}
+                        {perfil?.nombre_carrera || 'Ingeniería Civil Informática'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <Calendar className="w-4 h-4 text-[#00A9E0] shrink-0" />
+                      <span>
+                        <strong className="font-bold">Generación:</strong> {perfil?.generacion || 2024}
+                      </span>
+                    </div>
+                    {perfil?.telefono && (
+                      <div className="flex items-center gap-2.5">
+                        <User className="w-4 h-4 text-[#00A9E0] shrink-0" />
+                        <span>
+                          <strong className="font-bold">Teléfono:</strong> {perfil.telefono}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-5 space-y-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowPasswordModal(true)}
+                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-[#0A1931] hover:bg-[#15367A] text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                    >
+                      <KeyRound className="w-3.5 h-3.5 text-[#00A9E0]" />
+                      Cambiar contraseña
+                    </button>
+                    <a
+                      href="https://www.sii.cl/servicios_online/1040-1287.html"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-[#E6F5FC] hover:bg-[#D4EEFA] border border-[#A8DDF5] text-[#0369A1] text-xs font-bold transition"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Ir a emitir boleta (SII)
+                    </a>
+                  </div>
+                </div>
+              </section>
+
+              {/* Resumen compacto del Staff (equilibra columna izquierda) */}
+              <section className="bg-white rounded-3xl shadow-sm border border-slate-200/80 p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-extrabold text-[#0A1931]">Resumen de {MESES[mes - 1]}</h3>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${getProcesoStyle('VALIDADA').badge}`}>
+                    {perfil?.estado_disponibilidad || 'DISPONIBLE'}
                   </span>
                 </div>
-
-                <h2 className="mt-3 text-2xl font-extrabold text-[#0A1931]">
-                  {user.nombre} {user.apellido}
-                </h2>
-                <p className="text-xs text-slate-400 mt-0.5">{user.correo}</p>
-
-                <div className="mt-6 space-y-3 text-left">
-                  <div className="px-4 py-3 rounded-xl bg-[#F4F8FB] text-sm text-[#0A1931]">
-                    <span className="font-bold">Carrera:</span>{' '}
-                    {perfil?.nombre_carrera || 'Ingeniería Civil Informática'}
+                <div className="grid grid-cols-3 gap-2.5 text-center">
+                  <div className="p-3 rounded-2xl bg-[#E6F6F0]/60 border border-[#A7E3CE]/70">
+                    <div className="text-xl font-extrabold text-[#0F7657]">{resumenMes.horas_totales}h</div>
+                    <div className="text-[10px] font-bold text-slate-600 mt-0.5">Horas mes</div>
                   </div>
-                  <div className="px-4 py-3 rounded-xl bg-[#F4F8FB] text-sm text-[#0A1931]">
-                    <span className="font-bold">Generación:</span> {perfil?.generacion || 2024}
+                  <div className="p-3 rounded-2xl bg-[#E6F5FC]/70 border border-[#A8DDF5]/70">
+                    <div className="text-xl font-extrabold text-[#0369A1]">{resumenMes.total_asistencias}</div>
+                    <div className="text-[10px] font-bold text-slate-600 mt-0.5">Asistencias</div>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-[#EEF2FF]/80 border border-[#C7D2FE]/70">
+                    <div className="text-xl font-extrabold text-[#4338CA]">{proximosTurnosCount}</div>
+                    <div className="text-[10px] font-bold text-slate-600 mt-0.5">Próximos</div>
                   </div>
                 </div>
+              </section>
+            </div>
 
-                <div className="mt-6 inline-block px-5 py-2.5 rounded-full bg-[#E6F7FD] border border-[#BAE8FA] text-sm text-[#0A1931]">
-                  <span className="font-extrabold text-[#007AA8]">{resumenMes.horas_totales} horas</span>{' '}
-                  trabajadas este mes
+            <section className="col-span-8 bg-white rounded-3xl shadow-sm border border-slate-200/80 p-7">
+              <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
+                <div>
+                  <h2 className="text-2xl font-extrabold text-[#0A1931]">
+                    Historial Mensual de Actividades
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Haz clic en un día pintado o en una etiqueta de color para filtrar la lista
+                  </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setShowPasswordModal(true)}
-                  className="mt-5 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-[#0A1931] hover:bg-[#15367A] text-white text-xs font-bold shadow-xs transition cursor-pointer"
-                >
-                  <KeyRound className="w-3.5 h-3.5 text-[#00A9E0]" />
-                  Cambiar contraseña
-                </button>
-              </div>
-            </section>
-
-            <section className="col-span-8 bg-white rounded-3xl shadow-sm border border-slate-200/80 p-8">
-              <h2 className="text-2xl font-extrabold text-[#0A1931] mb-6">
-                Historial Mensual de Actividades
-              </h2>
-
-              <div className="flex items-center justify-center gap-6 mb-5">
-                <button
-                  onClick={() => changeMonth(-1)}
-                  className="p-2 rounded-xl hover:bg-slate-100 text-[#0A1931] transition cursor-pointer"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <span className="text-lg font-bold text-[#0A1931] min-w-[180px] text-center">
-                  {MESES[mes - 1]} {anio}
-                </span>
-                <button
-                  onClick={() => changeMonth(1)}
-                  className="p-2 rounded-xl hover:bg-slate-100 text-[#0A1931] transition cursor-pointer"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-3 bg-[#F4F8FB] border border-slate-200 rounded-2xl px-2 py-1">
+                  <button
+                    onClick={() => changeMonth(-1)}
+                    className="p-1.5 rounded-xl hover:bg-white text-[#0A1931] transition cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-sm font-bold text-[#0A1931] min-w-[130px] text-center">
+                    {MESES[mes - 1]} {anio}
+                  </span>
+                  <button
+                    onClick={() => changeMonth(1)}
+                    className="p-1.5 rounded-xl hover:bg-white text-[#0A1931] transition cursor-pointer"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
-              <div className="rounded-2xl overflow-hidden border border-slate-200 mb-8">
+              <div className="rounded-2xl overflow-hidden border border-slate-200 mb-5">
                 <div className="grid grid-cols-7 bg-[#F4F8FB] border-b border-slate-200">
                   {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((d) => (
                     <div key={d} className="py-2.5 text-center text-xs font-bold text-[#0A1931]">
@@ -1859,29 +2116,95 @@ export default function StaffPortal() {
                   {monthCells.map((day, idx) => {
                     const status = day ? monthDaysMap[day] : null;
                     const st = status ? getProcesoStyle(status) : null;
+                    const titles = day ? monthDayTitlesMap[day] || [] : [];
+                    const isToday =
+                      day === todayInfo.day && mes === todayInfo.month && anio === todayInfo.year;
+                    const isSelectedDay = day && perfilDayFilter === day;
+
                     return (
-                      <div
+                      <button
                         key={idx}
-                        className={`h-12 flex items-center justify-center text-sm font-semibold border-b border-r border-slate-100 ${
-                          st ? st.cell : 'text-[#0A1931]'
+                        type="button"
+                        disabled={!day || titles.length === 0}
+                        onClick={() => {
+                          if (!day || titles.length === 0) return;
+                          setPerfilDayFilter((prev) => (prev === day ? null : day));
+                        }}
+                        title={
+                          titles.length > 0
+                            ? `${day} ${MESES_CORTOS[mes - 1]}: ${titles.join(' | ')}`
+                            : isToday
+                              ? 'Hoy'
+                              : undefined
+                        }
+                        className={`h-14 px-1 flex flex-col items-center justify-center text-sm font-semibold border-b border-r border-slate-100 transition ${
+                          st ? `${st.cell} cursor-pointer hover:brightness-95` : 'text-[#0A1931] cursor-default'
+                        } ${isToday ? 'ring-2 ring-inset ring-[#00A9E0]' : ''} ${
+                          isSelectedDay ? 'ring-2 ring-inset ring-[#0A1931]' : ''
                         }`}
                       >
-                        {day || ''}
-                      </div>
+                        <span>{day || ''}</span>
+                        {titles.length > 0 && (
+                          <span className="text-[9px] font-bold opacity-80 truncate max-w-[90%] leading-tight mt-0.5">
+                            {titles[0].split(' (')[0]}
+                          </span>
+                        )}
+                      </button>
                     );
                   })}
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 mb-6 text-[11px] font-semibold">
-                <span className={`px-2.5 py-0.5 rounded-full ${getProcesoStyle('VALIDADA').badge}`}>Validada</span>
-                <span className={`px-2.5 py-0.5 rounded-full ${getProcesoStyle('CONFIRMADA').badge}`}>Confirmada</span>
-                <span className={`px-2.5 py-0.5 rounded-full ${getProcesoStyle('ASIGNADA').badge}`}>Asignada</span>
-                <span className={`px-2.5 py-0.5 rounded-full ${getProcesoStyle('INASISTENCIA').badge}`}>Inasistencia</span>
+              {/* Leyenda interactiva (filtros clicables) */}
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold">
+                  {[
+                    { key: 'VALIDADA', label: 'Validada' },
+                    { key: 'CONFIRMADA', label: 'Confirmada' },
+                    { key: 'ASIGNADA', label: 'Asignada' },
+                    { key: 'INASISTENCIA', label: 'Inasistencia' },
+                  ].map((f) => {
+                    const active = perfilStatusFilter === f.key;
+                    return (
+                      <button
+                        key={f.key}
+                        type="button"
+                        onClick={() =>
+                          setPerfilStatusFilter((prev) => (prev === f.key ? null : f.key))
+                        }
+                        className={`px-3 py-1 rounded-full transition cursor-pointer ${getProcesoStyle(f.key).badge} ${
+                          active ? 'ring-2 ring-[#0A1931]/40 scale-[1.03]' : 'opacity-85 hover:opacity-100'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    );
+                  })}
+                  {(perfilDayFilter || perfilStatusFilter || perfilSearch) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPerfilDayFilter(null);
+                        setPerfilStatusFilter(null);
+                        setPerfilSearch('');
+                      }}
+                      className="px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-bold cursor-pointer transition"
+                    >
+                      Ver todo el mes
+                    </button>
+                  )}
+                </div>
+                {perfilDayFilter && (
+                  <span className="text-xs font-bold text-[#0369A1]">
+                    Filtrando día {perfilDayFilter} de {MESES[mes - 1]}
+                  </span>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <h3 className="text-lg font-extrabold text-[#0A1931]">Actividades del Mes</h3>
+                <h3 className="text-lg font-extrabold text-[#0A1931]">
+                  Actividades del Mes ({perfilMonthActivities.length})
+                </h3>
                 <div className="relative w-64">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
@@ -1894,23 +2217,35 @@ export default function StaffPortal() {
                 </div>
               </div>
               {perfilMonthActivities.length === 0 ? (
-                <p className="text-sm text-slate-400 py-4">
-                  No hay actividades registradas en {MESES[mes - 1]} {anio}. Prueba navegar a Agosto,
-                  Septiembre, Octubre o Noviembre 2026.
+                <p className="text-sm text-slate-400 py-6 text-center">
+                  No hay actividades para los filtros seleccionados en {MESES[mes - 1]} {anio}.
                 </p>
               ) : (
                 <div className="divide-y divide-slate-100">
                   {perfilMonthActivities.map((item) => (
-                    <div key={item.id} className="py-3.5 flex items-center justify-between gap-4">
-                      <span className="text-sm font-medium text-[#0A1931]">
-                        {item.titulo} — <strong className="font-bold">{item.horas} hrs</strong>
-                      </span>
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => handleOpenPerfilActivity(item)}
+                      className="w-full text-left py-3.5 px-2 -mx-2 rounded-xl hover:bg-[#F7FAFD] flex items-center justify-between gap-4 transition cursor-pointer"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-[#0A1931] truncate">
+                          {item.titulo} — <strong className="font-bold">{item.horas} hrs</strong>
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5 truncate">
+                          {formatFechaLarga(item.fecha)}
+                          {item.horaInicio ? ` · ${item.horaInicio}` : ''}
+                          {item.lugar ? ` · ${item.lugar}` : ''}
+                          {item.ciudad ? `, ${item.ciudad}` : ''}
+                        </div>
+                      </div>
                       <span
-                        className={`px-3.5 py-1 rounded-full text-xs font-semibold ${getProcesoStyle(item.procesoKey).badge}`}
+                        className={`px-3.5 py-1 rounded-full text-xs font-semibold shrink-0 ${getProcesoStyle(item.procesoKey).badge}`}
                       >
                         {item.estado}
                       </span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -1944,6 +2279,147 @@ export default function StaffPortal() {
           );
         })}
       </nav>
+
+      {/* ===================================================================== */}
+      {/* MODAL EXPERIENCIA Y FOTOS DE RECUERDO (MÁX 5 FOTOS)                   */}
+      {/* ===================================================================== */}
+      {expModalPost && (
+        <div
+          onClick={() => setExpModalPost(null)}
+          className="fixed inset-0 z-50 bg-[#0A1931]/55 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-2xl max-h-[90vh] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden"
+          >
+            <div className="px-6 py-4 border-b border-slate-100 bg-[#F8FBFD] flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#E6F5FC] border border-[#A8DDF5] text-[#0369A1] text-[10px] font-extrabold uppercase tracking-wider mb-1">
+                  <Camera className="w-3 h-3" />
+                  Mi Experiencia y Recuerdos
+                </span>
+                <h2 className="text-base sm:text-lg font-extrabold text-[#0A1931] truncate">
+                  {expModalPost.titulo}
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {formatFechaLarga(expModalPost.fecha_actividad)} · {expModalPost.nombre_lugar}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExpModalPost(null)}
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Comentario de experiencia */}
+              <form onSubmit={handleSaveExperiencia} className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-extrabold text-[#0A1931] uppercase tracking-wide">
+                    Cuéntanos cómo fue tu experiencia
+                  </label>
+                  <span className="text-[11px] text-slate-400">
+                    {expComment.length}/1000
+                  </span>
+                </div>
+                <textarea
+                  rows={4}
+                  maxLength={1000}
+                  value={expComment}
+                  onChange={(e) => setExpComment(e.target.value)}
+                  placeholder="Ej: Excelente jornada con los estudiantes, gran convocatoria en el stand de Ingeniería..."
+                  className="w-full px-3.5 py-2.5 rounded-2xl bg-[#F4F8FB] border border-slate-200 text-sm text-[#0A1931] placeholder:text-slate-400 focus:outline-none focus:border-[#00A9E0] focus:bg-white transition resize-none"
+                />
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={expSavingComment}
+                    className="px-5 py-2 rounded-full bg-[#00A9E0] hover:bg-[#0092C4] text-white text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-60"
+                  >
+                    {expSavingComment ? 'Guardando...' : 'Guardar experiencia'}
+                  </button>
+                </div>
+              </form>
+
+              {/* Galería de fotos opcionales (máx 5) */}
+              <div className="pt-4 border-t border-slate-100 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-xs font-extrabold text-[#0A1931] uppercase tracking-wide flex items-center gap-1.5">
+                      <ImageIcon className="w-4 h-4 text-[#00A9E0]" />
+                      Fotos de recuerdo (opcional)
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      El equipo Admin podrá verlas y descargarlas para redes sociales (IG). Máximo 5 fotos.
+                    </p>
+                  </div>
+                  <span className="px-3 py-1 rounded-full bg-[#E6F6F0] border border-[#A7E3CE] text-[#0F7657] text-xs font-bold">
+                    {expPhotos.length} / 5 fotos
+                  </span>
+                </div>
+
+                <input
+                  ref={expPhotoInputRef}
+                  type="file"
+                  multiple
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleUploadExpPhotos}
+                  className="hidden"
+                />
+
+                {expPhotos.length < 5 && (
+                  <button
+                    type="button"
+                    disabled={expUploadingPhotos}
+                    onClick={() => expPhotoInputRef.current?.click()}
+                    className="w-full py-3.5 px-4 rounded-2xl border-2 border-dashed border-[#A8DDF5] bg-[#F4F8FB] hover:bg-[#E6F5FC]/60 text-[#0369A1] text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-60"
+                  >
+                    <Upload className="w-4 h-4" />
+                    {expUploadingPhotos
+                      ? 'Optimizando y subiendo fotos...'
+                      : `Subir fotos (${5 - expPhotos.length} disponible${5 - expPhotos.length === 1 ? '' : 's'})`}
+                  </button>
+                )}
+
+                {expLoadingPhotos ? (
+                  <p className="py-6 text-center text-xs text-slate-400">Cargando tus fotos...</p>
+                ) : expPhotos.length === 0 ? (
+                  <p className="py-4 text-center text-xs text-slate-400">
+                    Aún no has subido fotos de recuerdo en esta actividad.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {expPhotos.map((foto) => (
+                      <div
+                        key={foto.id_foto}
+                        className="relative rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 aspect-square group"
+                      >
+                        <img
+                          src={resolveAssetUrl(foto.url)}
+                          alt={foto.nombre_archivo}
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          disabled={expDeletingPhotoId === foto.id_foto}
+                          onClick={() => handleDeleteExpPhoto(foto.id_foto)}
+                          title="Eliminar foto"
+                          className="absolute top-2 right-2 p-1.5 rounded-full bg-red-600/90 hover:bg-red-700 text-white shadow transition cursor-pointer disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===================================================================== */}
       {/* MODAL CAMBIAR CONTRASEÑA                                              */}

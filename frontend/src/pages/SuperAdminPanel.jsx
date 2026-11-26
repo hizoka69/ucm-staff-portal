@@ -21,6 +21,7 @@ import UcmLogo from '../components/UcmLogo';
 import UserAvatar from '../components/UserAvatar';
 import ReportesView from '../components/ReportesView';
 import MantenedoresView from '../components/MantenedoresView';
+import { compressImage } from '../utils/imageCompress';
 
 function formatAudLabel(key) {
   const map = {
@@ -79,13 +80,14 @@ export default function SuperAdminPanel() {
     if (!file) return;
     setUploadingPhoto(true);
     try {
+      const optimized = await compressImage(file, { maxSide: 400, quality: 0.85 });
       const fd = new FormData();
-      fd.append('file', file);
+      fd.append('file', optimized);
       const res = await api.post('/auth/foto', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       updateUserPhoto(res.data.foto_url);
-      showToast('success', 'Foto de perfil actualizada.');
+      showToast('success', 'Foto de perfil guardada permanentemente.');
     } catch (err) {
       showToast('error', getErrorMessage(err, 'No se pudo subir la imagen.'));
     } finally {
