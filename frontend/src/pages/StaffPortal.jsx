@@ -4,6 +4,7 @@ import {
   Bell,
   Calendar,
   Camera,
+  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -17,6 +18,7 @@ import {
   MapPin,
   MessageSquare,
   Plus,
+  Search,
   Store,
   Trash2,
   User,
@@ -28,6 +30,7 @@ import { useAuth } from '../context/AuthContext';
 import UcmLogo from '../components/UcmLogo';
 import UserAvatar from '../components/UserAvatar';
 import ChangePasswordModal from '../components/ChangePasswordModal';
+import { getProcesoStyle } from '../utils/statusStyles';
 
 const MESES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -68,6 +71,14 @@ function formatFechaCierre(raw) {
   const [, m, d] = datePart.split('-');
   if (!m || !d) return s;
   return `${d}/${m} ${timePart}`;
+}
+
+function normalizeSearchText(s = '') {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 }
 
 function normalizeCategory(nombreTipo = '') {
@@ -128,13 +139,30 @@ export default function StaffPortal() {
   const [mes, setMes] = useState(11);
   const [anio, setAnio] = useState(2026);
   const [filtroTipo, setFiltroTipo] = useState('Todas');
+  const [actSearch, setActSearch] = useState('');
+  const [postSearch, setPostSearch] = useState('');
+  const [perfilSearch, setPerfilSearch] = useState('');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   const [actividades, setActividades] = useState([]);
+  const [todasActividades, setTodasActividades] = useState([]);
   const [misPostulaciones, setMisPostulaciones] = useState([]);
   const [perfil, setPerfil] = useState(null);
   const [resumenMes, setResumenMes] = useState({ horas_totales: 0, total_asistencias: 0, detalle: [] });
   const [disponibilidades, setDisponibilidades] = useState([]);
+
+  // Notificaciones desplegables en la campanita
+  const notifKey = `ucm_read_notifs_${user.id_usuario}`;
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [readNotifIds, setReadNotifIds] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(notifKey) || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const notifDesktopRef = useRef(null);
+  const notifMobileRef = useRef(null);
 
   const [selectedActId, setSelectedActId] = useState(null);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
@@ -175,20 +203,25 @@ export default function StaffPortal() {
   const loadCoreData = useCallback(async () => {
     setLoading(true);
     try {
-      const [actRes, postRes, perfRes, dispRes] = await Promise.all([
+      const [actRes, allActRes, postRes, perfRes, dispRes] = await Promise.all([
         api.get('/gestores/actividades/calendario', { params: { mes, anio } }),
+        api.get('/gestores/actividades/calendario'),
         api.get('/gestores/postulaciones/mis-postulaciones'),
         api.get(`/mantenedores/perfiles-staff/${user.id_usuario}`).catch(() => ({ data: null })),
         api.get('/mantenedores/disponibilidad-staff'),
       ]);
       const list = actRes.data || [];
+      const allList = allActRes.data || [];
       setActividades(list);
+      setTodasActividades(allList);
       setMisPostulaciones(postRes.data || []);
       if (perfRes.data) setPerfil(perfRes.data);
       setDisponibilidades(dispRes.data || []);
 
       setSelectedActId((prev) => {
-        if (prev && list.some((a) => a.id_actividad === prev)) return prev;
+        if (prev && (list.some((a) => a.id_actividad === prev) || allList.some((a) => a.id_actividad === prev))) {
+          return prev;
+        }
         return list.length > 0 ? list[0].id_actividad : null;
       });
     } catch (err) {
@@ -212,15 +245,193 @@ export default function StaffPortal() {
     loadResumenMes();
   }, [loadCoreData, loadResumenMes]);
 
+  // Cierra el desplegable de notificaciones al hacer clic fuera o presionar Escape
+  useEffect(() => {
+    if (!notifOpen) return undefined;
+    const handleClickOutside = (e) => {
+      const insideDesktop = notifDesktopRef.current?.contains(e.target);
+      const insideMobile = notifMobileRef.current?.contains(e.target);
+      if (!insideDesktop && !insideMobile) {
+        setNotifOpen(false);
+      }
+    };
+    const handleKey = (e) => {
+      if (e.key === 'Escape') setNotifOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [notifOpen]);
+
   const filteredActividades = useMemo(() => {
-    if (filtroTipo === 'Todas') return actividades;
-    return actividades.filter((a) => normalizeCategory(a.nombre_tipo) === filtroTipo);
-  }, [actividades, filtroTipo]);
+    const q = normalizeSearchText(actSearch);
+    const base = q ? todasActividades : actividades;
+    return base.filter((a) => {
+      if (filtroTipo !== 'Todas' && normalizeCategory(a.nombre_tipo) !== filtroTipo) return false;
+      if (!q) return true;
+      return normalizeSearchText(
+        `${a.titulo} ${a.descripcion || ''} ${a.nombre_lugar} ${a.nombre_ciudad} ${a.nombre_tipo} ${a.fecha_actividad}`
+      ).includes(q);
+    });
+  }, [actividades, todasActividades, filtroTipo, actSearch]);
 
   const selectedAct = useMemo(
-    () => actividades.find((a) => a.id_actividad === selectedActId) || filteredActividades[0] || null,
-    [actividades, selectedActId, filteredActividades]
+    () =>
+      todasActividades.find((a) => a.id_actividad === selectedActId) ||
+      actividades.find((a) => a.id_actividad === selectedActId) ||
+      filteredActividades[0] ||
+      null,
+    [todasActividades, actividades, selectedActId, filteredActividades]
   );
+
+  const filteredMisPostulaciones = useMemo(() => {
+    const q = normalizeSearchText(postSearch);
+    if (!q) return misPostulaciones;
+    return misPostulaciones.filter((p) =>
+      normalizeSearchText(
+        `${p.titulo} ${p.nombre_lugar} ${p.nombre_ciudad} ${p.nombre_tipo} ${p.estado_postulacion} ${p.fecha_actividad} ${
+          p.asistio === 'S' ? 'validada asistio' : p.asistio === 'N' ? 'inasistencia' : ''
+        }`
+      ).includes(q)
+    );
+  }, [misPostulaciones, postSearch]);
+
+  // Notificaciones reales derivadas de Oracle (asignaciones, validaciones y actividades nuevas abiertas)
+  const notifications = useMemo(() => {
+    const list = [];
+
+    // 1. Actividades donde fuiste asignado (por Admin o promovido desde Lista de Espera)
+    misPostulaciones.forEach((p) => {
+      if (p.estado_postulacion === 'ASIGNADA' && !p.asistio) {
+        list.push({
+          id: `asignada-${p.id_postulacion}`,
+          tipo: 'ASIGNADA',
+          titulo: `Fuiste seleccionado para ${p.titulo}`,
+          subtitulo: `${formatFechaLarga(p.fecha_actividad)} · ${p.hora_inicio} · ${p.nombre_lugar}`,
+          actionLabel: 'Ver actividad asignada',
+          idActividad: p.id_actividad,
+          fechaActividad: p.fecha_actividad,
+          targetTab: 'actividades',
+        });
+      }
+    });
+
+    // 2. Nuevas actividades publicadas abiertas para postular (en cualquier mes)
+    todasActividades.forEach((a) => {
+      const yaInscrito =
+        a.mi_estado_postulacion === 'CONFIRMADA' || a.mi_estado_postulacion === 'ASIGNADA';
+      const enEspera = a.mi_estado_espera === 'PENDIENTE';
+      if (!yaInscrito && !enEspera && a.postulacion_cerrada !== 'S') {
+        const isFull = a.cupos_disponibles <= 0;
+        list.push({
+          id: `nueva-act-${a.id_actividad}`,
+          tipo: isFull ? 'PENDIENTE' : 'CONFIRMADA',
+          badgeText: isFull ? 'Lista de espera' : 'Nueva actividad',
+          titulo: isFull
+            ? `Cupos llenos (lista de espera): ${a.titulo}`
+            : `Nueva actividad disponible: ${a.titulo}`,
+          subtitulo: `${formatFechaLarga(a.fecha_actividad)} · ${a.hora_inicio} · ${
+            isFull ? 'Unirse a espera' : `${a.cupos_disponibles} cupo(s)`
+          }`,
+          actionLabel: 'Ver detalle y postular',
+          idActividad: a.id_actividad,
+          fechaActividad: a.fecha_actividad,
+          targetTab: 'actividades',
+        });
+      }
+    });
+
+    // 3. Turnos confirmados próximos sin validar aún
+    misPostulaciones.forEach((p) => {
+      if (p.estado_postulacion === 'CONFIRMADA' && !p.asistio && p.nombre_estado !== 'FINALIZADA') {
+        list.push({
+          id: `confirmada-${p.id_postulacion}`,
+          tipo: 'CONFIRMADA',
+          badgeText: 'Confirmada',
+          titulo: `Turno confirmado: ${p.titulo}`,
+          subtitulo: `${formatFechaLarga(p.fecha_actividad)} · ${p.hora_inicio} · ${p.nombre_lugar}`,
+          actionLabel: 'Ver actividad',
+          idActividad: p.id_actividad,
+          fechaActividad: p.fecha_actividad,
+          targetTab: 'actividades',
+        });
+      }
+    });
+
+    // 4. Últimas validaciones de asistencia / horas
+    misPostulaciones
+      .filter((p) => p.asistio === 'S' || p.asistio === 'N')
+      .slice(0, 4)
+      .forEach((p) => {
+        list.push({
+          id: `validada-${p.id_postulacion}-${p.asistio}`,
+          tipo: p.asistio === 'S' ? 'VALIDADA' : 'INASISTENCIA',
+          badgeText: p.asistio === 'S' ? `Validada · ${p.horas_efectivas}h` : 'Inasistencia',
+          titulo:
+            p.asistio === 'S'
+              ? `Asistencia validada en ${p.titulo}`
+              : `Inasistencia registrada en ${p.titulo}`,
+          subtitulo: `${formatFechaLarga(p.fecha_actividad)} · ${p.nombre_lugar}`,
+          actionLabel: 'Ver en Mis Postulaciones',
+          idActividad: p.id_actividad,
+          fechaActividad: p.fecha_actividad,
+          targetTab: 'calendario',
+        });
+      });
+
+    return list;
+  }, [todasActividades, misPostulaciones]);
+
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !readNotifIds.includes(n.id)).length,
+    [notifications, readNotifIds]
+  );
+
+  const markNotifRead = (id) => {
+    setReadNotifIds((prev) => {
+      if (prev.includes(id)) return prev;
+      const next = [...prev, id];
+      localStorage.setItem(notifKey, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const markAllNotifsRead = () => {
+    const allIds = notifications.map((n) => n.id);
+    setReadNotifIds(allIds);
+    localStorage.setItem(notifKey, JSON.stringify(allIds));
+  };
+
+  const handleNotificationClick = (notif) => {
+    markNotifRead(notif.id);
+    setNotifOpen(false);
+
+    if (notif.targetTab === 'actividades') {
+      const existsInPublished = todasActividades.some((a) => a.id_actividad === notif.idActividad);
+      if (existsInPublished) {
+        const parsed = parseIsoDate(notif.fechaActividad);
+        if (parsed) {
+          setMes(parsed.month);
+          setAnio(parsed.year);
+        }
+        setFiltroTipo('Todas');
+        setActSearch('');
+        setActiveTab('actividades');
+        setSelectedActId(notif.idActividad);
+        if (window.innerWidth < 1024) {
+          setMobileDetailOpen(true);
+        }
+        return;
+      }
+    }
+
+    // Si la actividad ya no está en el feed publicado (ej. finalizada), lleva directo a Mis Postulaciones
+    setPostSearch('');
+    setActiveTab('calendario');
+  };
 
   const handlePostular = async (actividad) => {
     setSubmittingId(actividad.id_actividad);
@@ -295,7 +506,7 @@ export default function StaffPortal() {
     (resumenMes.detalle || []).forEach((item) => {
       const p = parseIsoDate(item.fecha_actividad);
       if (p && p.month === mes && p.year === anio) {
-        map[p.day] = item.asistio === 'S' ? 'completada' : 'inasistencia';
+        map[p.day] = item.asistio === 'S' ? 'VALIDADA' : 'INASISTENCIA';
       }
     });
     misPostulaciones.forEach((item) => {
@@ -307,7 +518,7 @@ export default function StaffPortal() {
         ['CONFIRMADA', 'ASIGNADA'].includes(item.estado_postulacion) &&
         !map[p.day]
       ) {
-        map[p.day] = 'programada';
+        map[p.day] = item.estado_postulacion;
       }
     });
     return map;
@@ -322,7 +533,8 @@ export default function StaffPortal() {
         id: `reg-${d.id_registro}`,
         titulo: d.titulo,
         horas: d.horas_efectivas,
-        estado: d.asistio === 'S' ? 'Completada' : 'Inasistencia',
+        estado: d.asistio === 'S' ? 'Validada' : 'Inasistencia',
+        procesoKey: d.asistio === 'S' ? 'VALIDADA' : 'INASISTENCIA',
         completed: d.asistio === 'S',
         fecha: d.fecha_actividad,
       });
@@ -340,30 +552,40 @@ export default function StaffPortal() {
           id: `post-${p.id_postulacion}`,
           titulo: p.titulo,
           horas: p.cantidad_horas,
-          estado: 'Confirmada',
+          estado: p.estado_postulacion === 'ASIGNADA' ? 'Asignada' : 'Confirmada',
+          procesoKey: p.estado_postulacion,
           completed: false,
           fecha: p.fecha_actividad,
         });
       }
     });
-    return rows;
-  }, [resumenMes, misPostulaciones, mes, anio]);
+    const q = normalizeSearchText(perfilSearch);
+    if (!q) return rows;
+    return rows.filter((r) => normalizeSearchText(`${r.titulo} ${r.estado} ${r.fecha}`).includes(q));
+  }, [resumenMes, misPostulaciones, mes, anio, perfilSearch]);
 
   const monthCells = useMemo(() => buildMonthGrid(anio, mes), [anio, mes]);
 
   const renderPostularStatus = (act) => {
-    if (act.mi_estado_postulacion === 'CONFIRMADA' || act.mi_estado_postulacion === 'ASIGNADA') {
+    if (act.mi_estado_postulacion === 'ASIGNADA') {
       return {
-        label: 'Inscrito',
+        label: 'Asignado',
         disabled: true,
-        style: 'bg-[#E7F7F2] border border-[#0F9D75]/35 text-[#0B7A5A]',
+        style: getProcesoStyle('ASIGNADA').badge,
+      };
+    }
+    if (act.mi_estado_postulacion === 'CONFIRMADA') {
+      return {
+        label: 'Confirmado',
+        disabled: true,
+        style: getProcesoStyle('CONFIRMADA').badge,
       };
     }
     if (act.mi_estado_espera === 'PENDIENTE') {
       return {
         label: 'En lista de espera',
         disabled: true,
-        style: 'bg-amber-50 border border-amber-300 text-amber-800',
+        style: getProcesoStyle('PENDIENTE').badge,
       };
     }
     if (act.postulacion_cerrada === 'S') {
@@ -371,7 +593,7 @@ export default function StaffPortal() {
         label: 'Postulación cerrada',
         disabled: true,
         isClosed: true,
-        style: 'bg-slate-100 border border-slate-300 text-slate-500',
+        style: getProcesoStyle('CERRADA').badge,
       };
     }
     const isFull = act.cupos_disponibles <= 0;
@@ -380,10 +602,83 @@ export default function StaffPortal() {
       disabled: false,
       isFull,
       style: isFull
-        ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-sm'
+        ? 'bg-[#FEF7E6] hover:bg-[#FCECC5] border border-[#F5D68E] text-[#9A6700] shadow-2xs'
         : 'bg-[#00A9E0] hover:bg-[#0092C4] text-white shadow-sm shadow-[#00A9E0]/25',
     };
   };
+
+  const renderNotifDropdown = () => (
+    <div className="absolute right-0 mt-2.5 w-80 sm:w-96 rounded-2xl bg-white border border-slate-200/90 shadow-2xl z-50 overflow-hidden text-left">
+      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-[#F8FBFD]">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-extrabold text-[#0A1931]">Notificaciones</span>
+          {unreadCount > 0 && (
+            <span className="px-2 py-0.5 rounded-full bg-[#E6F5FC] text-[#0369A1] text-[10px] font-bold">
+              {unreadCount} nueva(s)
+            </span>
+          )}
+        </div>
+        {notifications.length > 0 && (
+          <button
+            type="button"
+            onClick={markAllNotifsRead}
+            title="Marcar todas como leídas"
+            className="p-1.5 rounded-lg text-[#00A9E0] hover:bg-[#E6F5FC] transition cursor-pointer"
+          >
+            <Check className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+        {notifications.length === 0 ? (
+          <div className="py-10 px-4 text-center text-xs text-slate-400">
+            No tienes notificaciones pendientes por ahora.
+          </div>
+        ) : (
+          notifications.map((n) => {
+            const isUnread = !readNotifIds.includes(n.id);
+            const pStyle = getProcesoStyle(n.tipo);
+            return (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => handleNotificationClick(n)}
+                className={`w-full text-left px-4 py-3 hover:bg-[#F4F8FB] transition cursor-pointer flex items-start gap-3 ${
+                  isUnread ? 'bg-[#F8FCFF]' : 'bg-white'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${isUnread ? pStyle.dot : 'bg-slate-200'}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${pStyle.badge}`}>
+                      {n.badgeText || pStyle.label}
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold text-[#0A1931] leading-snug">{n.titulo}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5 truncate">{n.subtitulo}</p>
+                  <span className="inline-block mt-1.5 text-[11px] font-semibold text-[#0092C4]">
+                    {n.actionLabel} →
+                  </span>
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => {
+          setNotifOpen(false);
+          setActiveTab('calendario');
+        }}
+        className="w-full py-2.5 text-center text-xs font-bold text-[#0086B8] hover:bg-[#F4F8FB] border-t border-slate-100 transition cursor-pointer"
+      >
+        Ver todo
+      </button>
+    </div>
+  );
 
   return (
     <div className="min-h-screen flex flex-col pb-20 lg:pb-0 bg-[#F4F8FB] text-[#0A1931]">
@@ -500,13 +795,26 @@ export default function StaffPortal() {
           )}
 
           <div className="flex items-center gap-2.5 pl-2 border-l border-slate-200">
-            <button
-              onClick={() => setActiveTab('calendario')}
-              className="p-2 rounded-xl text-slate-500 hover:text-[#00A9E0] hover:bg-sky-50 transition cursor-pointer"
-              title="Mis postulaciones"
-            >
-              <Bell className="w-4 h-4" />
-            </button>
+            <div className="relative" ref={notifDesktopRef}>
+              <button
+                type="button"
+                onClick={() => setNotifOpen((v) => !v)}
+                className={`relative p-2 rounded-xl transition cursor-pointer ${
+                  notifOpen
+                    ? 'bg-[#E6F5FC] text-[#0369A1]'
+                    : 'text-slate-500 hover:text-[#00A9E0] hover:bg-sky-50'
+                }`}
+                title="Notificaciones"
+              >
+                <Bell className="w-4 h-4" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#00A9E0] text-white text-[10px] font-extrabold flex items-center justify-center shadow-xs">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+              {notifOpen && renderNotifDropdown()}
+            </div>
             <button
               onClick={() => setActiveTab('perfil')}
               title={`${user.nombre} ${user.apellido}`}
@@ -531,6 +839,26 @@ export default function StaffPortal() {
       <header className="lg:hidden sticky top-0 z-30 bg-white border-b border-slate-200/90 px-4 h-16 flex items-center justify-between shadow-2xs">
         <UcmLogo variant="light" size="sm" />
         <div className="flex items-center gap-2">
+          <div className="relative" ref={notifMobileRef}>
+            <button
+              type="button"
+              onClick={() => setNotifOpen((v) => !v)}
+              className={`relative p-2 rounded-xl border transition ${
+                notifOpen
+                  ? 'bg-[#E6F5FC] text-[#0369A1] border-[#A8DDF5]'
+                  : 'bg-slate-50 text-slate-600 border-slate-200'
+              }`}
+              title="Notificaciones"
+            >
+              <Bell className="w-4 h-4" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-[#00A9E0] text-white text-[9px] font-extrabold flex items-center justify-center">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+            {notifOpen && renderNotifDropdown()}
+          </div>
           <button
             onClick={() => setActiveTab('perfil')}
             title={`${user.nombre} ${user.apellido}`}
@@ -598,6 +926,35 @@ export default function StaffPortal() {
             </div>
           </div>
 
+          {/* Buscador global de actividades (PC y Móvil) */}
+          <div className="mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={actSearch}
+                onChange={(e) => setActSearch(e.target.value)}
+                placeholder="Buscar actividad en cualquier mes por título, lugar o tipo..."
+                className="w-full pl-9 pr-9 py-2.5 rounded-2xl bg-white border border-slate-200 text-xs sm:text-sm text-[#0A1931] placeholder:text-slate-400 focus:outline-none focus:border-[#00A9E0] transition shadow-2xs"
+              />
+              {actSearch && (
+                <button
+                  type="button"
+                  onClick={() => setActSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="Limpiar búsqueda"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            {actSearch.trim() && (
+              <span className="text-xs font-semibold text-slate-500">
+                Mostrando {filteredActividades.length} resultado(s) en todos los meses
+              </span>
+            )}
+          </div>
+
           {loading ? (
             <div className="py-20 text-center text-slate-500 text-sm">
               Cargando actividades desde Oracle 21c...
@@ -647,17 +1004,20 @@ export default function StaffPortal() {
                           >
                             {vis.badgeLabel} · {act.cantidad_horas}h
                           </span>
-                          {act.mi_estado_postulacion === 'CONFIRMADA' ||
-                          act.mi_estado_postulacion === 'ASIGNADA' ? (
-                            <span className="px-2.5 py-0.5 rounded-full bg-[#E7F7F2] border border-[#0F9D75]/30 text-[#0B7A5A] text-[11px] font-bold">
-                              Inscrito
+                          {act.mi_estado_postulacion === 'ASIGNADA' ? (
+                            <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${getProcesoStyle('ASIGNADA').badge}`}>
+                              Asignado
+                            </span>
+                          ) : act.mi_estado_postulacion === 'CONFIRMADA' ? (
+                            <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${getProcesoStyle('CONFIRMADA').badge}`}>
+                              Confirmado
                             </span>
                           ) : act.mi_estado_espera === 'PENDIENTE' ? (
-                            <span className="px-2.5 py-0.5 rounded-full bg-amber-50 border border-amber-300 text-amber-800 text-[11px] font-bold">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${getProcesoStyle('PENDIENTE').badge}`}>
                               En espera
                             </span>
                           ) : isClosed ? (
-                            <span className="px-2.5 py-0.5 rounded-full bg-red-50 border border-red-200 text-red-700 text-[11px] font-bold">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${getProcesoStyle('CERRADA').badge}`}>
                               Cerrada
                             </span>
                           ) : (
@@ -1070,25 +1430,47 @@ export default function StaffPortal() {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <section className="lg:col-span-2 bg-white rounded-3xl border border-slate-200/80 shadow-xs p-6">
-              <div className="flex items-center justify-between mb-5">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                 <div>
                   <h2 className="text-lg font-extrabold text-[#0A1931]">Mis Postulaciones</h2>
                   <p className="text-xs text-slate-500">
                     Historial completo de turnos confirmados, asignados y validados
                   </p>
                 </div>
-                <span className="px-3 py-1 rounded-full bg-[#E6F7FD] text-[#007AA8] text-xs font-bold">
-                  {misPostulaciones.length} registros
+                <span className="px-3 py-1 rounded-full bg-[#E6F5FC] border border-[#A8DDF5] text-[#0369A1] text-xs font-bold">
+                  {filteredMisPostulaciones.length} registros
                 </span>
               </div>
 
-              {misPostulaciones.length === 0 ? (
+              <div className="relative mb-4">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={postSearch}
+                  onChange={(e) => setPostSearch(e.target.value)}
+                  placeholder="Buscar en mis postulaciones por actividad, lugar o estado..."
+                  className="w-full pl-9 pr-9 py-2 rounded-2xl bg-[#F4F8FB] border border-slate-200 text-xs text-[#0A1931] placeholder:text-slate-400 focus:outline-none focus:border-[#00A9E0] focus:bg-white transition"
+                />
+                {postSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setPostSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {filteredMisPostulaciones.length === 0 ? (
                 <div className="py-12 text-center text-slate-400 text-sm">
-                  Aún no tienes postulaciones registradas. Explora la pestaña Actividades.
+                  {misPostulaciones.length === 0
+                    ? 'Aún no tienes postulaciones registradas. Explora la pestaña Actividades.'
+                    : `No hay postulaciones que coincidan con "${postSearch}".`}
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {misPostulaciones.map((p) => {
+                  {filteredMisPostulaciones.map((p) => {
                     const puedeCancelar =
                       ['CONFIRMADA', 'ASIGNADA'].includes(p.estado_postulacion) &&
                       !p.asistio &&
@@ -1119,20 +1501,20 @@ export default function StaffPortal() {
 
                         <div className="flex items-center gap-2 shrink-0">
                           {p.asistio === 'S' ? (
-                            <span className="px-3 py-1 rounded-full bg-[#0F9D75] text-white text-xs font-semibold">
+                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getProcesoStyle('VALIDADA').badge}`}>
                               Validada · {p.horas_efectivas}h
                             </span>
                           ) : p.asistio === 'N' ? (
-                            <span className="px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-semibold">
+                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getProcesoStyle('INASISTENCIA').badge}`}>
                               Inasistencia
                             </span>
                           ) : p.estado_postulacion === 'CANCELADA' ? (
-                            <span className="px-3 py-1 rounded-full bg-slate-200 text-slate-600 text-xs font-semibold">
+                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getProcesoStyle('CANCELADA').badge}`}>
                               Cancelada
                             </span>
                           ) : (
-                            <span className="px-3 py-1 rounded-full bg-[#E6F7FD] text-[#007AA8] text-xs font-semibold">
-                              {p.estado_postulacion}
+                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getProcesoStyle(p.estado_postulacion).badge}`}>
+                              {p.estado_postulacion === 'ASIGNADA' ? 'Asignada' : 'Confirmada'}
                             </span>
                           )}
 
@@ -1323,33 +1705,35 @@ export default function StaffPortal() {
                 ))}
                 {monthCells.map((day, idx) => {
                   const status = day ? monthDaysMap[day] : null;
+                  const st = status ? getProcesoStyle(status) : null;
                   return (
                     <div key={idx} className="py-1 flex flex-col items-center justify-center">
                       {day && (
                         <>
                           <span
                             className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
-                              status === 'completada'
-                                ? 'bg-[#E6F7FD] text-[#0A1931]'
-                                : status === 'programada'
-                                  ? 'bg-[#00A9E0] text-white'
-                                  : 'text-slate-700'
+                              st ? st.cell : 'text-slate-700'
                             }`}
                           >
                             {day}
                           </span>
-                          {status && (
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full mt-0.5 ${
-                                status === 'completada' ? 'bg-[#0F9D75]' : 'bg-[#00A9E0]'
-                              }`}
-                            />
-                          )}
+                          {st && <span className={`w-1.5 h-1.5 rounded-full mt-0.5 ${st.dot}`} />}
                         </>
                       )}
                     </div>
                   );
                 })}
+              </div>
+
+              <div className="relative mb-3">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={perfilSearch}
+                  onChange={(e) => setPerfilSearch(e.target.value)}
+                  placeholder="Buscar actividad del mes..."
+                  className="w-full pl-8 pr-3 py-2 rounded-xl bg-[#F4F8FB] border border-slate-200 text-xs text-[#0A1931]"
+                />
               </div>
 
               <div className="space-y-2.5">
@@ -1358,23 +1742,22 @@ export default function StaffPortal() {
                     Sin actividades registradas en {MESES[mes - 1]} {anio}.
                   </p>
                 ) : (
-                  perfilMonthActivities.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center gap-3 p-3.5 rounded-2xl bg-[#F4F8FB] border border-slate-200/70"
-                    >
+                  perfilMonthActivities.map((item) => {
+                    const st = getProcesoStyle(item.procesoKey);
+                    return (
                       <div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
-                          item.completed ? 'bg-[#0F9D75] text-white' : 'bg-[#00A9E0] text-white'
-                        }`}
+                        key={item.id}
+                        className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-[#F4F8FB] border border-slate-200/70"
                       >
-                        <CheckCircle2 className="w-4 h-4" />
+                        <span className="text-xs font-bold text-[#0A1931] truncate">
+                          {item.titulo} · {item.horas}h
+                        </span>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${st.badge}`}>
+                          {item.estado}
+                        </span>
                       </div>
-                      <span className="text-xs font-bold text-[#0A1931] truncate">
-                        {item.titulo} · {item.horas}h
-                      </span>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -1475,17 +1858,12 @@ export default function StaffPortal() {
                 <div className="grid grid-cols-7 bg-white">
                   {monthCells.map((day, idx) => {
                     const status = day ? monthDaysMap[day] : null;
+                    const st = status ? getProcesoStyle(status) : null;
                     return (
                       <div
                         key={idx}
                         className={`h-12 flex items-center justify-center text-sm font-semibold border-b border-r border-slate-100 ${
-                          status === 'completada'
-                            ? 'bg-[#15285A] text-white'
-                            : status === 'programada'
-                              ? 'bg-[#00A9E0] text-white'
-                              : status === 'inasistencia'
-                                ? 'bg-red-100 text-red-700'
-                                : 'text-[#0A1931]'
+                          st ? st.cell : 'text-[#0A1931]'
                         }`}
                       >
                         {day || ''}
@@ -1495,7 +1873,26 @@ export default function StaffPortal() {
                 </div>
               </div>
 
-              <h3 className="text-lg font-extrabold text-[#0A1931] mb-4">Actividades del Mes</h3>
+              <div className="flex flex-wrap items-center gap-2 mb-6 text-[11px] font-semibold">
+                <span className={`px-2.5 py-0.5 rounded-full ${getProcesoStyle('VALIDADA').badge}`}>Validada</span>
+                <span className={`px-2.5 py-0.5 rounded-full ${getProcesoStyle('CONFIRMADA').badge}`}>Confirmada</span>
+                <span className={`px-2.5 py-0.5 rounded-full ${getProcesoStyle('ASIGNADA').badge}`}>Asignada</span>
+                <span className={`px-2.5 py-0.5 rounded-full ${getProcesoStyle('INASISTENCIA').badge}`}>Inasistencia</span>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h3 className="text-lg font-extrabold text-[#0A1931]">Actividades del Mes</h3>
+                <div className="relative w-64">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={perfilSearch}
+                    onChange={(e) => setPerfilSearch(e.target.value)}
+                    placeholder="Buscar actividad del mes..."
+                    className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-[#F4F8FB] border border-slate-200 text-xs text-[#0A1931]"
+                  />
+                </div>
+              </div>
               {perfilMonthActivities.length === 0 ? (
                 <p className="text-sm text-slate-400 py-4">
                   No hay actividades registradas en {MESES[mes - 1]} {anio}. Prueba navegar a Agosto,
@@ -1509,13 +1906,7 @@ export default function StaffPortal() {
                         {item.titulo} — <strong className="font-bold">{item.horas} hrs</strong>
                       </span>
                       <span
-                        className={`px-4 py-1 rounded-full text-xs font-semibold ${
-                          item.completed
-                            ? 'bg-[#0F9D75] text-white'
-                            : item.estado === 'Confirmada'
-                              ? 'bg-[#00A9E0] text-white'
-                              : 'bg-red-100 text-red-700'
-                        }`}
+                        className={`px-3.5 py-1 rounded-full text-xs font-semibold ${getProcesoStyle(item.procesoKey).badge}`}
                       >
                         {item.estado}
                       </span>

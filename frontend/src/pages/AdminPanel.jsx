@@ -35,6 +35,7 @@ import UserAvatar from '../components/UserAvatar';
 import ReportesView from '../components/ReportesView';
 import MantenedoresView from '../components/MantenedoresView';
 import ChangePasswordModal from '../components/ChangePasswordModal';
+import { getEstadoActividadBadge, getProcesoStyle } from '../utils/statusStyles';
 
 const MESES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -270,8 +271,11 @@ export default function AdminPanel() {
   const [valDrafts, setValDrafts] = useState({});
   const [savingValId, setSavingValId] = useState(null);
 
-  // Filtros y sub-tabs Gestión Staff
+  // Filtros y sub-tabs Gestión Staff / Buscadores de actividades
   const [staffSearch, setStaffSearch] = useState('');
+  const [calSearch, setCalSearch] = useState('');
+  const [staffActSearch, setStaffActSearch] = useState('');
+  const [valActSearch, setValActSearch] = useState('');
   const [mobileStaffSubTab, setMobileStaffSubTab] = useState('espera'); // 'disponibles' | 'asignados' | 'espera'
 
   // Formulario Nueva Actividad
@@ -525,9 +529,38 @@ const handleRegionChange = (region) => {
   }, [actividadesMes, mes, anio]);
 
   const selectedCalAct = useMemo(
-    () => actividadesMes.find((a) => a.id_actividad === selectedCalActId) || null,
-    [actividadesMes, selectedCalActId]
+    () =>
+      actividadesMes.find((a) => a.id_actividad === selectedCalActId) ||
+      todasActividades.find((a) => a.id_actividad === selectedCalActId) ||
+      null,
+    [actividadesMes, todasActividades, selectedCalActId]
   );
+
+  const calSearchResults = useMemo(() => {
+    const q = normalizar(calSearch);
+    if (!q) return [];
+    return todasActividades.filter((a) =>
+      normalizar(
+        `${a.titulo} ${a.nombre_lugar} ${a.nombre_ciudad} ${a.nombre_tipo} ${a.nombre_estado} ${a.fecha_actividad}`
+      ).includes(q)
+    );
+  }, [todasActividades, calSearch]);
+
+  const filteredStaffActs = useMemo(() => {
+    const q = normalizar(staffActSearch);
+    if (!q) return todasActividades;
+    return todasActividades.filter((a) =>
+      normalizar(`${a.titulo} ${a.nombre_lugar} ${a.nombre_ciudad} ${a.nombre_estado}`).includes(q)
+    );
+  }, [todasActividades, staffActSearch]);
+
+  const filteredValActs = useMemo(() => {
+    const q = normalizar(valActSearch);
+    if (!q) return todasActividades;
+    return todasActividades.filter((a) =>
+      normalizar(`${a.titulo} ${a.nombre_lugar} ${a.nombre_ciudad} ${a.nombre_estado}`).includes(q)
+    );
+  }, [todasActividades, valActSearch]);
 
   const selectedStaffAct = useMemo(
     () => todasActividades.find((a) => a.id_actividad === selectedStaffActId) || null,
@@ -1089,7 +1122,7 @@ const handleRegionChange = (region) => {
                   <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
                     {/* CALENDARIO DE ACTIVIDADES */}
                     <section className="xl:col-span-7 bg-white rounded-3xl border border-slate-200/80 shadow-xs p-5 lg:p-7">
-                      <div className="flex items-center justify-between mb-5">
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                         <h2 className="text-lg lg:text-xl font-extrabold text-[#0A1931]">
                           Calendario de Actividades
                         </h2>
@@ -1111,6 +1144,73 @@ const handleRegionChange = (region) => {
                           </button>
                         </div>
                       </div>
+
+                      {/* Buscador global de actividades en el calendario */}
+                      <div className="relative mb-4">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={calSearch}
+                          onChange={(e) => setCalSearch(e.target.value)}
+                          placeholder="Buscar actividad en cualquier mes por título, lugar, tipo o estado..."
+                          className="w-full pl-9 pr-9 py-2.5 rounded-2xl bg-[#F4F8FB] border border-slate-200 text-xs sm:text-sm text-[#0A1931] placeholder:text-slate-400 focus:outline-none focus:border-[#00A9E0] focus:bg-white transition"
+                        />
+                        {calSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setCalSearch('')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                            title="Limpiar búsqueda"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      {calSearch.trim() && (
+                        <div className="mb-4 p-3 rounded-2xl bg-[#F7FAFD] border border-slate-200 space-y-2 max-h-56 overflow-y-auto">
+                          <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 px-1">
+                            <span>Resultados en todos los meses ({calSearchResults.length})</span>
+                          </div>
+                          {calSearchResults.length === 0 ? (
+                            <p className="text-xs text-slate-400 text-center py-3">
+                              No se encontraron actividades con &quot;{calSearch}&quot;.
+                            </p>
+                          ) : (
+                            calSearchResults.map((act) => (
+                              <button
+                                key={act.id_actividad}
+                                type="button"
+                                onClick={() => {
+                                  const p = parseIsoDate(act.fecha_actividad);
+                                  if (p) {
+                                    setMes(p.month);
+                                    setAnio(p.year);
+                                  }
+                                  setSelectedCalActId(act.id_actividad);
+                                  setCalSearch('');
+                                }}
+                                className="w-full text-left p-2.5 rounded-xl bg-white hover:bg-[#E6F5FC]/60 border border-slate-200/80 flex items-center justify-between gap-2 transition cursor-pointer"
+                              >
+                                <div className="min-w-0">
+                                  <div className="text-xs font-bold text-[#0A1931] truncate">
+                                    {act.titulo}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 truncate">
+                                    {formatFechaCorta(act.fecha_actividad)} · {act.hora_inicio} ·{' '}
+                                    {act.nombre_lugar}
+                                  </div>
+                                </div>
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${getEstadoActividadBadge(act.nombre_estado)}`}
+                                >
+                                  {act.nombre_estado}
+                                </span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
 
                       {/* Grilla Calendario */}
                       <div className="rounded-2xl overflow-hidden border border-slate-200/80">
@@ -1215,7 +1315,9 @@ const handleRegionChange = (region) => {
                                 >
                                   {selectedCalAct.nombre_tipo}
                                 </span>
-                                <span className="px-2.5 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] font-bold text-slate-700">
+                                <span
+                                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${getEstadoActividadBadge(selectedCalAct.nombre_estado)}`}
+                                >
                                   {selectedCalAct.nombre_estado}
                                 </span>
                               </div>
@@ -1309,7 +1411,9 @@ const handleRegionChange = (region) => {
                                     {act.cupos_ocupados}/{act.cupos_maximos} cupos
                                   </div>
                                 </div>
-                                <span className="px-2.5 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] font-bold text-slate-600 shrink-0">
+                                <span
+                                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${getEstadoActividadBadge(act.nombre_estado)}`}
+                                >
                                   {act.nombre_estado}
                                 </span>
                               </button>
@@ -1733,12 +1837,22 @@ const handleRegionChange = (region) => {
                     {/* Selector + Banner azul de actividad */}
                     {(mobileStaffSubTab === 'espera' || mobileStaffSubTab === 'asignados') && (
                       <div className="space-y-2.5">
+                        <div className="relative">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            value={staffActSearch}
+                            onChange={(e) => setStaffActSearch(e.target.value)}
+                            placeholder="Filtrar actividad..."
+                            className="w-full pl-9 pr-3 py-2 rounded-2xl bg-white border border-slate-200 text-xs text-[#0A1931]"
+                          />
+                        </div>
                         <select
                           value={selectedStaffActId || ''}
                           onChange={(e) => setSelectedStaffActId(Number(e.target.value))}
                           className="w-full px-3.5 py-2.5 rounded-2xl bg-white border border-slate-200 text-xs font-bold text-[#0A1931]"
                         >
-                          {todasActividades.map((a) => (
+                          {filteredStaffActs.map((a) => (
                             <option key={a.id_actividad} value={a.id_actividad}>
                               {a.titulo} ({a.cupos_ocupados}/{a.cupos_maximos})
                             </option>
@@ -1870,7 +1984,9 @@ const handleRegionChange = (region) => {
                                       <div className="text-xs text-slate-500 truncate">{p.carrera}</div>
                                     </div>
                                   </div>
-                                  <span className="px-2.5 py-1 rounded-full bg-[#0F9D75] text-white text-[11px] font-bold shrink-0">
+                                  <span
+                                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 ${getProcesoStyle(row.estado_postulacion).badge}`}
+                                  >
                                     {row.estado_postulacion}
                                   </span>
                                 </div>
@@ -2021,12 +2137,22 @@ const handleRegionChange = (region) => {
                             </span>
                           )}
                         </div>
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-amber-700/60 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            value={staffActSearch}
+                            onChange={(e) => setStaffActSearch(e.target.value)}
+                            placeholder="Buscar actividad..."
+                            className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-white/90 border border-amber-200 text-xs text-[#0A1931] placeholder:text-slate-400 focus:outline-none focus:border-amber-400"
+                          />
+                        </div>
                         <select
                           value={selectedStaffActId || ''}
                           onChange={(e) => setSelectedStaffActId(Number(e.target.value))}
                           className="w-full px-3 py-2 rounded-xl bg-white border border-amber-300/80 text-sm font-bold text-[#0A1931] focus:outline-none"
                         >
-                          {todasActividades.map((a) => (
+                          {filteredStaffActs.map((a) => (
                             <option key={a.id_actividad} value={a.id_actividad}>
                               {a.titulo} ({a.cupos_ocupados}/{a.cupos_maximos})
                             </option>
@@ -2070,7 +2196,9 @@ const handleRegionChange = (region) => {
                                         {p.fullName}
                                       </span>
                                     </div>
-                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                                    <span
+                                      className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${getProcesoStyle(row.estado_postulacion).badge}`}
+                                    >
                                       {row.estado_postulacion}
                                     </span>
                                   </div>
@@ -2200,17 +2328,29 @@ const handleRegionChange = (region) => {
                         Certifica asistencia y horas efectivas trabajadas por el Staff en cada actividad.
                       </p>
                     </div>
-                    <select
-                      value={valActId || ''}
-                      onChange={(e) => setValActId(Number(e.target.value))}
-                      className="px-4 py-2.5 rounded-2xl bg-white border border-slate-200 text-sm font-bold text-[#0A1931] shadow-2xs max-w-md"
-                    >
-                      {todasActividades.map((a) => (
-                        <option key={a.id_actividad} value={a.id_actividad}>
-                          [{a.nombre_estado}] {a.titulo} ({formatFechaCorta(a.fecha_actividad)})
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                      <div className="relative sm:w-52">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={valActSearch}
+                          onChange={(e) => setValActSearch(e.target.value)}
+                          placeholder="Buscar actividad..."
+                          className="w-full pl-9 pr-3 py-2.5 rounded-2xl bg-white border border-slate-200 text-xs text-[#0A1931]"
+                        />
+                      </div>
+                      <select
+                        value={valActId || ''}
+                        onChange={(e) => setValActId(Number(e.target.value))}
+                        className="px-4 py-2.5 rounded-2xl bg-white border border-slate-200 text-sm font-bold text-[#0A1931] shadow-2xs max-w-md"
+                      >
+                        {filteredValActs.map((a) => (
+                          <option key={a.id_actividad} value={a.id_actividad}>
+                            [{a.nombre_estado}] {a.titulo} ({formatFechaCorta(a.fecha_actividad)})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs p-5 lg:p-6">
@@ -2249,8 +2389,16 @@ const handleRegionChange = (region) => {
                                     </div>
                                     <div className="text-xs text-slate-500 truncate">{person.carrera}</div>
                                     {yaValidado && (
-                                      <span className="inline-block mt-1 px-2 py-0.5 rounded-full bg-[#E7F7F2] text-[#0B7A5A] text-[10px] font-bold">
-                                        Validado ({post.asistio === 'S' ? `${post.horas_efectivas}h` : 'Inasistencia'})
+                                      <span
+                                        className={`inline-block mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                          post.asistio === 'S'
+                                            ? getProcesoStyle('VALIDADA').badge
+                                            : getProcesoStyle('INASISTENCIA').badge
+                                        }`}
+                                      >
+                                        {post.asistio === 'S'
+                                          ? `Validada · ${post.horas_efectivas}h`
+                                          : 'Inasistencia'}
                                       </span>
                                     )}
                                   </div>
