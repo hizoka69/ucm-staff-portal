@@ -26,7 +26,7 @@ END;
 CREATE TABLE roles (
     id_rol          NUMBER          NOT NULL,
     nombre_rol      VARCHAR2(50)    NOT NULL,
-    descripcion     VARCHAR2(200),
+    descripcion     VARCHAR2(200)   NOT NULL,
     CONSTRAINT pk_roles PRIMARY KEY (id_rol),
     CONSTRAINT uq_roles_nombre UNIQUE (nombre_rol)
 );
@@ -89,7 +89,7 @@ CREATE TABLE tipos_actividad (
 CREATE TABLE estados_actividad (
     id_estado_actividad NUMBER       NOT NULL,
     nombre_estado       VARCHAR2(30) NOT NULL,
-    descripcion         VARCHAR2(160),
+    descripcion         VARCHAR2(160) NOT NULL,
     CONSTRAINT pk_estados_actividad PRIMARY KEY (id_estado_actividad),
     CONSTRAINT uq_estados_act_nombre UNIQUE (nombre_estado)
 );
@@ -107,7 +107,7 @@ CREATE TABLE usuarios (
     id_rol             NUMBER          NOT NULL,
     debe_cambiar_clave CHAR(1)         DEFAULT 'S' NOT NULL,
     activo             CHAR(1)         DEFAULT 'S' NOT NULL,
-    creado_por         NUMBER,
+    creado_por         NUMBER          NOT NULL,
     fecha_creacion     TIMESTAMP       DEFAULT CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) NOT NULL,
     CONSTRAINT pk_usuarios PRIMARY KEY (id_usuario),
     CONSTRAINT uq_usuarios_rut UNIQUE (rut),
@@ -125,7 +125,7 @@ CREATE TABLE perfiles_staff (
     id_usuario            NUMBER        NOT NULL,
     id_carrera            NUMBER        NOT NULL,
     generacion            NUMBER        NOT NULL,
-    telefono              VARCHAR2(20),
+    telefono              VARCHAR2(20)  NOT NULL,
     estado_disponibilidad VARCHAR2(15)  DEFAULT 'DISPONIBLE' NOT NULL,
     CONSTRAINT pk_perfiles_staff PRIMARY KEY (id_usuario),
     CONSTRAINT fk_perfil_usuario FOREIGN KEY (id_usuario) REFERENCES usuarios (id_usuario),
@@ -149,7 +149,7 @@ CREATE TABLE disponibilidad_staff (
 CREATE TABLE actividades (
     id_actividad             NUMBER         NOT NULL,
     titulo                   VARCHAR2(120)  NOT NULL,
-    descripcion              VARCHAR2(500),
+    descripcion              VARCHAR2(500)  NOT NULL,
     id_tipo_actividad        NUMBER         NOT NULL,
     id_ubicacion             NUMBER         NOT NULL,
     id_estado_actividad      NUMBER         NOT NULL,
@@ -177,13 +177,11 @@ CREATE TABLE postulaciones (
     id_usuario             NUMBER         NOT NULL,
     estado_postulacion     VARCHAR2(20)   DEFAULT 'CONFIRMADA' NOT NULL,
     fecha_postulacion      TIMESTAMP      DEFAULT CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) NOT NULL,
-    asignado_por           NUMBER,
     comentario_experiencia VARCHAR2(1000),
     CONSTRAINT pk_postulaciones PRIMARY KEY (id_postulacion),
     CONSTRAINT uq_post_act_usr UNIQUE (id_actividad, id_usuario),
     CONSTRAINT fk_post_actividad FOREIGN KEY (id_actividad) REFERENCES actividades (id_actividad),
     CONSTRAINT fk_post_usuario FOREIGN KEY (id_usuario) REFERENCES usuarios (id_usuario),
-    CONSTRAINT fk_post_asignado_por FOREIGN KEY (asignado_por) REFERENCES usuarios (id_usuario),
     CONSTRAINT ck_post_estado CHECK (estado_postulacion IN ('CONFIRMADA', 'ASIGNADA', 'CANCELADA'))
 );
 
@@ -193,13 +191,11 @@ CREATE TABLE lista_espera (
     id_usuario       NUMBER        NOT NULL,
     fecha_ingreso    TIMESTAMP     DEFAULT CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) NOT NULL,
     estado_espera    VARCHAR2(20)  DEFAULT 'PENDIENTE' NOT NULL,
-    resuelto_por     NUMBER,
     fecha_resolucion TIMESTAMP,
     CONSTRAINT pk_lista_espera PRIMARY KEY (id_lista_espera),
     CONSTRAINT uq_espera_act_usr UNIQUE (id_actividad, id_usuario),
     CONSTRAINT fk_espera_actividad FOREIGN KEY (id_actividad) REFERENCES actividades (id_actividad),
     CONSTRAINT fk_espera_usuario FOREIGN KEY (id_usuario) REFERENCES usuarios (id_usuario),
-    CONSTRAINT fk_espera_resuelto_por FOREIGN KEY (resuelto_por) REFERENCES usuarios (id_usuario),
     CONSTRAINT ck_espera_estado CHECK (estado_espera IN ('PENDIENTE', 'ACEPTADA', 'RECHAZADA', 'CANCELADA'))
 );
 
@@ -224,8 +220,8 @@ CREATE TABLE auditoria_sistema (
     tabla_afectada      VARCHAR2(40)  NOT NULL,
     id_registro         NUMBER        NOT NULL,
     accion              VARCHAR2(30)  NOT NULL,
-    detalle_cambio      VARCHAR2(400),
-    id_usuario_ejecutor NUMBER,
+    detalle_cambio      VARCHAR2(400) NOT NULL,
+    id_usuario_ejecutor NUMBER        NOT NULL,
     fecha_evento        TIMESTAMP     DEFAULT CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) NOT NULL,
     CONSTRAINT pk_auditoria_sistema PRIMARY KEY (id_auditoria),
     CONSTRAINT fk_aud_usuario FOREIGN KEY (id_usuario_ejecutor) REFERENCES usuarios (id_usuario)
@@ -301,8 +297,8 @@ COMPOUND TRIGGER
             :NEW.correo := LOWER(TRIM(:NEW.correo));
             :NEW.rut    := UPPER(TRIM(:NEW.rut));
 
-            IF :NEW.id_rol = 1 AND :NEW.creado_por IS NOT NULL THEN
-                RAISE_APPLICATION_ERROR(-20003, 'El SUPERADMIN raíz no puede tener un usuario creador asignado.');
+            IF :NEW.id_rol = 1 AND :NEW.creado_por <> :NEW.id_usuario THEN
+                RAISE_APPLICATION_ERROR(-20003, 'El SUPERADMIN raíz debe autoreferenciarse en creado_por.');
             END IF;
 
             IF :NEW.id_rol IN (2, 3) AND :NEW.creado_por IS NULL THEN
@@ -391,7 +387,6 @@ COMPOUND TRIGGER
     BEFORE EACH ROW IS
         v_rol_usr    NUMBER;
         v_activo_usr CHAR(1);
-        v_rol_asig   NUMBER;
     BEGIN
         SELECT id_rol, activo INTO v_rol_usr, v_activo_usr
           FROM usuarios
@@ -403,13 +398,6 @@ COMPOUND TRIGGER
 
         IF INSERTING AND v_activo_usr <> 'S' THEN
             RAISE_APPLICATION_ERROR(-20012, 'Un usuario STAFF inactivo no puede postular a actividades.');
-        END IF;
-
-        IF :NEW.asignado_por IS NOT NULL THEN
-            SELECT id_rol INTO v_rol_asig FROM usuarios WHERE id_usuario = :NEW.asignado_por;
-            IF v_rol_asig <> 2 THEN
-                RAISE_APPLICATION_ERROR(-20013, 'Solo un ADMIN puede asignar manualmente a un STAFF.');
-            END IF;
         END IF;
 
         IF :NEW.estado_postulacion IN ('CONFIRMADA', 'ASIGNADA') THEN
@@ -452,22 +440,15 @@ CREATE OR REPLACE TRIGGER trg_lista_espera_control
 BEFORE INSERT OR UPDATE ON lista_espera
 FOR EACH ROW
 DECLARE
-    v_rol_usr  NUMBER;
-    v_rol_res  NUMBER;
+    v_rol_usr NUMBER;
 BEGIN
     SELECT id_rol INTO v_rol_usr FROM usuarios WHERE id_usuario = :NEW.id_usuario;
     IF v_rol_usr <> 3 THEN
         RAISE_APPLICATION_ERROR(-20015, 'Solo usuarios STAFF pueden ingresar a la lista de espera.');
     END IF;
 
-    IF :NEW.resuelto_por IS NOT NULL THEN
-        SELECT id_rol INTO v_rol_res FROM usuarios WHERE id_usuario = :NEW.resuelto_por;
-        IF v_rol_res <> 2 THEN
-            RAISE_APPLICATION_ERROR(-20016, 'Solo un ADMIN puede aprobar o rechazar solicitudes de lista de espera.');
-        END IF;
-        IF :NEW.fecha_resolucion IS NULL THEN
-            :NEW.fecha_resolucion := CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP);
-        END IF;
+    IF :NEW.estado_espera IN ('ACEPTADA', 'RECHAZADA', 'CANCELADA') AND :NEW.fecha_resolucion IS NULL THEN
+        :NEW.fecha_resolucion := CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP);
     END IF;
 END trg_lista_espera_control;
 /
@@ -563,7 +544,7 @@ AFTER INSERT OR UPDATE ON postulaciones
 FOR EACH ROW
 DECLARE
     v_accion   VARCHAR2(30) := CASE WHEN INSERTING THEN 'INSERT' ELSE 'UPDATE' END;
-    v_ejecutor NUMBER       := NVL(:NEW.asignado_por, :NEW.id_usuario);
+    v_ejecutor NUMBER       := :NEW.id_usuario;
 BEGIN
     INSERT INTO auditoria_sistema (
         id_auditoria, tabla_afectada, id_registro, accion, detalle_cambio, id_usuario_ejecutor
@@ -1093,7 +1074,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_estados_act AS
     BEGIN
         p_id_out := seq_estados_actividad.NEXTVAL;
         INSERT INTO estados_actividad (id_estado_actividad, nombre_estado, descripcion)
-        VALUES (p_id_out, UPPER(TRIM(p_nombre_estado)), TRIM(p_descripcion));
+        VALUES (p_id_out, UPPER(TRIM(p_nombre_estado)), NVL(TRIM(p_descripcion), 'Sin descripción'));
         COMMIT;
     END;
 
@@ -1101,7 +1082,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_estados_act AS
     BEGIN
         UPDATE estados_actividad
            SET nombre_estado = UPPER(TRIM(p_nombre_estado)),
-               descripcion   = TRIM(p_descripcion)
+               descripcion   = NVL(TRIM(p_descripcion), 'Sin descripción')
          WHERE id_estado_actividad = p_id;
         IF SQL%ROWCOUNT = 0 THEN
             RAISE_APPLICATION_ERROR(-20107, 'Estado de actividad no encontrado.');
@@ -1183,7 +1164,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_perfiles_staff AS
     ) IS
     BEGIN
         INSERT INTO perfiles_staff (id_usuario, id_carrera, generacion, telefono, estado_disponibilidad)
-        VALUES (p_id_usuario, p_id_carrera, p_generacion, TRIM(p_telefono), UPPER(TRIM(p_estado_disponibilidad)));
+        VALUES (p_id_usuario, p_id_carrera, p_generacion, NVL(TRIM(p_telefono), 'Sin teléfono'), UPPER(TRIM(p_estado_disponibilidad)));
         COMMIT;
     END;
 
@@ -1198,7 +1179,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_perfiles_staff AS
         UPDATE perfiles_staff
            SET id_carrera            = p_id_carrera,
                generacion            = p_generacion,
-               telefono              = TRIM(p_telefono),
+               telefono              = NVL(TRIM(p_telefono), 'Sin teléfono'),
                estado_disponibilidad = UPPER(TRIM(p_estado_disponibilidad))
          WHERE id_usuario = p_id_usuario;
         IF SQL%ROWCOUNT = 0 THEN
@@ -1408,7 +1389,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_actividades AS
             id_estado_actividad, fecha_actividad, hora_inicio, cantidad_horas,
             cupos_maximos, fecha_pub_programada, id_admin_creador, horas_cierre_postulacion
         ) VALUES (
-            p_id_out, TRIM(p_titulo), TRIM(p_descripcion), p_id_tipo_actividad, p_id_ubicacion,
+            p_id_out, TRIM(p_titulo), NVL(TRIM(p_descripcion), 'Sin descripción'), p_id_tipo_actividad, p_id_ubicacion,
             p_id_estado_actividad, TRUNC(p_fecha_actividad), TRIM(p_hora_inicio), p_cantidad_horas,
             p_cupos_maximos, p_fecha_pub_programada, p_id_admin_creador, NVL(p_horas_cierre_postulacion, 10)
         );
@@ -1442,7 +1423,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_mant_actividades AS
 
         UPDATE actividades
            SET titulo                   = TRIM(p_titulo),
-               descripcion              = TRIM(p_descripcion),
+               descripcion              = NVL(TRIM(p_descripcion), 'Sin descripción'),
                id_tipo_actividad        = p_id_tipo_actividad,
                id_ubicacion             = p_id_ubicacion,
                id_estado_actividad      = p_id_estado_actividad,
@@ -1622,7 +1603,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_usuarios AS
         INSERT INTO perfiles_staff (
             id_usuario, id_carrera, generacion, telefono, estado_disponibilidad
         ) VALUES (
-            p_id_out, p_id_carrera, p_generacion, TRIM(p_telefono), 'DISPONIBLE'
+            p_id_out, p_id_carrera, p_generacion, NVL(TRIM(p_telefono), 'Sin teléfono'), 'DISPONIBLE'
         );
         COMMIT;
     EXCEPTION
@@ -1781,7 +1762,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_usuarios AS
         END IF;
 
         UPDATE auditoria_sistema
-           SET id_usuario_ejecutor = NULL
+           SET id_usuario_ejecutor = p_id_ejecutor
          WHERE id_usuario_ejecutor = p_id_usuario;
 
         IF v_rol_objetivo = 3 THEN
@@ -1826,9 +1807,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_usuarios AS
                 UPDATE registro_trabajo SET validado_por     = v_admin_reemplazo WHERE validado_por     = p_id_usuario;
                 UPDATE usuarios         SET creado_por       = v_admin_reemplazo WHERE creado_por       = p_id_usuario;
             END IF;
-
-            UPDATE postulaciones SET asignado_por = NULL WHERE asignado_por = p_id_usuario;
-            UPDATE lista_espera  SET resuelto_por = NULL WHERE resuelto_por = p_id_usuario;
 
             DELETE FROM usuarios WHERE id_usuario = p_id_usuario;
         END IF;
@@ -2113,8 +2091,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_postulaciones AS
             IF v_post_id IS NOT NULL THEN
                 UPDATE postulaciones
                    SET estado_postulacion = 'CONFIRMADA',
-                       fecha_postulacion  = v_ahora_chile,
-                       asignado_por       = NULL
+                       fecha_postulacion  = v_ahora_chile
                  WHERE id_postulacion = v_post_id;
                 p_id_out := v_post_id;
             ELSE
@@ -2138,7 +2115,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_postulaciones AS
                 UPDATE lista_espera
                    SET estado_espera    = 'PENDIENTE',
                        fecha_ingreso    = v_ahora_chile,
-                       resuelto_por     = NULL,
                        fecha_resolucion = NULL
                  WHERE id_lista_espera = v_esp_id;
                 p_id_out := v_esp_id;
@@ -2167,8 +2143,14 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_postulaciones AS
         p_id_admin     IN NUMBER,
         p_id_out       OUT NUMBER
     ) IS
-        v_post_id NUMBER;
+        v_rol_admin NUMBER;
+        v_post_id   NUMBER;
     BEGIN
+        SELECT id_rol INTO v_rol_admin FROM usuarios WHERE id_usuario = p_id_admin;
+        IF v_rol_admin <> 2 THEN
+            RAISE_APPLICATION_ERROR(-20013, 'Solo un ADMIN puede asignar manualmente a un STAFF.');
+        END IF;
+
         BEGIN
             SELECT id_postulacion INTO v_post_id
               FROM postulaciones
@@ -2177,15 +2159,14 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_postulaciones AS
 
             UPDATE postulaciones
                SET estado_postulacion = 'ASIGNADA',
-                   asignado_por       = p_id_admin,
                    fecha_postulacion  = CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP)
              WHERE id_postulacion = v_post_id;
             p_id_out := v_post_id;
         EXCEPTION
             WHEN NO_DATA_FOUND THEN
                 p_id_out := seq_postulaciones.NEXTVAL;
-                INSERT INTO postulaciones (id_postulacion, id_actividad, id_usuario, estado_postulacion, asignado_por)
-                VALUES (p_id_out, p_id_actividad, p_id_usuario, 'ASIGNADA', p_id_admin);
+                INSERT INTO postulaciones (id_postulacion, id_actividad, id_usuario, estado_postulacion)
+                VALUES (p_id_out, p_id_actividad, p_id_usuario, 'ASIGNADA');
         END;
         COMMIT;
     END;
@@ -2219,7 +2200,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_postulaciones AS
             SELECT p.id_postulacion, p.id_actividad, p.id_usuario,
                    u.rut, u.nombre, u.apellido, u.correo, u.foto_url,
                    c.nombre_carrera, ps.telefono,
-                   p.estado_postulacion, p.fecha_postulacion, p.asignado_por,
+                   p.estado_postulacion, p.fecha_postulacion,
                    rt.id_registro, rt.asistio, rt.horas_efectivas, rt.observaciones, rt.fecha_validacion
               FROM postulaciones p
               JOIN usuarios u             ON u.id_usuario     = p.id_usuario
@@ -2432,7 +2413,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_lista_espera AS
             SELECT l.id_lista_espera, l.id_actividad, l.id_usuario,
                    u.rut, u.nombre, u.apellido, u.correo, u.foto_url,
                    c.nombre_carrera, ps.telefono,
-                   l.fecha_ingreso, l.estado_espera, l.resuelto_por, l.fecha_resolucion
+                   l.fecha_ingreso, l.estado_espera, l.fecha_resolucion
               FROM lista_espera l
               JOIN usuarios u             ON u.id_usuario  = l.id_usuario
               LEFT JOIN perfiles_staff ps ON ps.id_usuario = u.id_usuario
@@ -2464,12 +2445,18 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_lista_espera AS
         p_id_admin           IN NUMBER,
         p_id_postulacion_out OUT NUMBER
     ) IS
-        v_id_act   NUMBER;
-        v_id_usr   NUMBER;
-        v_est_act  VARCHAR2(20);
-        v_post_id  NUMBER;
-        v_dec      VARCHAR2(20) := UPPER(TRIM(p_decision));
+        v_rol_admin NUMBER;
+        v_id_act    NUMBER;
+        v_id_usr    NUMBER;
+        v_est_act   VARCHAR2(20);
+        v_post_id   NUMBER;
+        v_dec       VARCHAR2(20) := UPPER(TRIM(p_decision));
     BEGIN
+        SELECT id_rol INTO v_rol_admin FROM usuarios WHERE id_usuario = p_id_admin;
+        IF v_rol_admin <> 2 THEN
+            RAISE_APPLICATION_ERROR(-20016, 'Solo un ADMIN puede aprobar o rechazar solicitudes de lista de espera.');
+        END IF;
+
         IF v_dec NOT IN ('ACEPTADA', 'RECHAZADA') THEN
             RAISE_APPLICATION_ERROR(-20230, 'La decisión debe ser ACEPTADA o RECHAZADA.');
         END IF;
@@ -2495,21 +2482,19 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_lista_espera AS
 
                 UPDATE postulaciones
                    SET estado_postulacion = 'ASIGNADA',
-                       asignado_por       = p_id_admin,
                        fecha_postulacion  = CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP)
                  WHERE id_postulacion = v_post_id;
                 p_id_postulacion_out := v_post_id;
             EXCEPTION
                 WHEN NO_DATA_FOUND THEN
                     p_id_postulacion_out := seq_postulaciones.NEXTVAL;
-                    INSERT INTO postulaciones (id_postulacion, id_actividad, id_usuario, estado_postulacion, asignado_por)
-                    VALUES (p_id_postulacion_out, v_id_act, v_id_usr, 'ASIGNADA', p_id_admin);
+                    INSERT INTO postulaciones (id_postulacion, id_actividad, id_usuario, estado_postulacion)
+                    VALUES (p_id_postulacion_out, v_id_act, v_id_usr, 'ASIGNADA');
             END;
         END IF;
 
         UPDATE lista_espera
            SET estado_espera    = v_dec,
-               resuelto_por     = p_id_admin,
                fecha_resolucion = CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP)
          WHERE id_lista_espera = p_id_lista_espera;
 
@@ -2534,7 +2519,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_lista_espera AS
              WHERE id_actividad  = cp_id_act
                AND estado_espera = 'PENDIENTE'
              ORDER BY fecha_ingreso ASC
-               FOR UPDATE OF estado_espera, resuelto_por, fecha_resolucion;
+               FOR UPDATE OF estado_espera, fecha_resolucion;
 
         v_rec          c_espera%ROWTYPE;
         v_rol_admin    NUMBER;
@@ -2591,19 +2576,16 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_lista_espera AS
                     IF v_post_estado IN ('CONFIRMADA', 'ASIGNADA') THEN
                         UPDATE lista_espera
                            SET estado_espera    = 'ACEPTADA',
-                               resuelto_por     = p_id_admin,
                                fecha_resolucion = v_ahora_chile
                          WHERE CURRENT OF c_espera;
                     ELSE
                         UPDATE postulaciones
                            SET estado_postulacion = 'ASIGNADA',
-                               asignado_por       = p_id_admin,
                                fecha_postulacion  = v_ahora_chile
                          WHERE id_postulacion = v_post_id;
 
                         UPDATE lista_espera
                            SET estado_espera    = 'ACEPTADA',
-                               resuelto_por     = p_id_admin,
                                fecha_resolucion = v_ahora_chile
                          WHERE CURRENT OF c_espera;
 
@@ -2612,14 +2594,13 @@ CREATE OR REPLACE PACKAGE BODY pkg_gest_lista_espera AS
                 EXCEPTION
                     WHEN NO_DATA_FOUND THEN
                         INSERT INTO postulaciones (
-                            id_postulacion, id_actividad, id_usuario, estado_postulacion, asignado_por
+                            id_postulacion, id_actividad, id_usuario, estado_postulacion
                         ) VALUES (
-                            seq_postulaciones.NEXTVAL, p_id_actividad, v_rec.id_usuario, 'ASIGNADA', p_id_admin
+                            seq_postulaciones.NEXTVAL, p_id_actividad, v_rec.id_usuario, 'ASIGNADA'
                         );
 
                         UPDATE lista_espera
                            SET estado_espera    = 'ACEPTADA',
-                               resuelto_por     = p_id_admin,
                                fecha_resolucion = v_ahora_chile
                          WHERE CURRENT OF c_espera;
 
@@ -3134,11 +3115,11 @@ DECLARE
 
     v_p NUMBER;
 
-    FUNCTION ins_post(p_act NUMBER, p_usr NUMBER, p_est VARCHAR2, p_asig NUMBER DEFAULT NULL) RETURN NUMBER IS
+    FUNCTION ins_post(p_act NUMBER, p_usr NUMBER, p_est VARCHAR2) RETURN NUMBER IS
         v_id NUMBER := seq_postulaciones.NEXTVAL;
     BEGIN
-        INSERT INTO postulaciones (id_postulacion, id_actividad, id_usuario, estado_postulacion, asignado_por)
-        VALUES (v_id, p_act, p_usr, p_est, p_asig);
+        INSERT INTO postulaciones (id_postulacion, id_actividad, id_usuario, estado_postulacion)
+        VALUES (v_id, p_act, p_usr, p_est);
         RETURN v_id;
     END;
 
@@ -3278,7 +3259,7 @@ BEGIN
 
     v_usr_super := seq_usuarios.NEXTVAL;
     INSERT INTO usuarios (id_usuario, rut, correo, password_hash, nombre, apellido, id_rol, debe_cambiar_clave, activo, creado_por)
-    VALUES (v_usr_super, '11.111.111-1', 'superadmin@ucm.cl', v_hash_demo, 'Superadmin', 'UCM', v_rol_super, 'N', 'S', NULL);
+    VALUES (v_usr_super, '11.111.111-1', 'superadmin@ucm.cl', v_hash_demo, 'Superadmin', 'UCM', v_rol_super, 'N', 'S', v_usr_super);
 
     v_adm_talca := seq_usuarios.NEXTVAL;
     INSERT INTO usuarios (id_usuario, rut, correo, password_hash, nombre, apellido, id_rol, debe_cambiar_clave, activo, creado_por)
@@ -3417,9 +3398,9 @@ BEGIN
     v_p := ins_post(v_act_06, v_s1, 'CONFIRMADA'); ins_reg(v_p, 'S', 4.0, 'Soporte técnico escenario', v_adm_talca);
     v_p := ins_post(v_act_06, v_s3, 'CONFIRMADA'); ins_reg(v_p, 'S', 4.0, 'Protocolo ingreso autoridades', v_adm_talca);
     v_p := ins_post(v_act_06, v_s4, 'CONFIRMADA'); ins_reg(v_p, 'S', 4.0, 'Mesa de registro prensa', v_adm_talca);
-    v_p := ins_post(v_act_06, v_s2, 'ASIGNADA', v_adm_talca); ins_reg(v_p, 'S', 4.0, 'Ingresó desde lista de espera y cumplió', v_adm_talca);
-    INSERT INTO lista_espera (id_lista_espera, id_actividad, id_usuario, estado_espera, resuelto_por, fecha_resolucion)
-    VALUES (seq_lista_espera.NEXTVAL, v_act_06, v_s2, 'ACEPTADA', v_adm_talca, CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) - 20);
+    v_p := ins_post(v_act_06, v_s2, 'ASIGNADA'); ins_reg(v_p, 'S', 4.0, 'Ingresó desde lista de espera y cumplió', v_adm_talca);
+    INSERT INTO lista_espera (id_lista_espera, id_actividad, id_usuario, estado_espera, fecha_resolucion)
+    VALUES (seq_lista_espera.NEXTVAL, v_act_06, v_s2, 'ACEPTADA', CAST(SYSTIMESTAMP AT TIME ZONE 'America/Santiago' AS TIMESTAMP) - 20);
 
     v_p := ins_post(v_act_07, v_s1, 'CONFIRMADA'); ins_reg(v_p, 'S', 5.0, 'Lideró módulo de ingenierías', v_adm_cur);
     v_p := ins_post(v_act_07, v_s2, 'CONFIRMADA'); ins_reg(v_p, 'S', 5.0, 'Muy buena evaluación de colegios', v_adm_cur);
@@ -3434,7 +3415,7 @@ BEGIN
     v_p := ins_post(v_act_09, v_s3, 'CONFIRMADA');
     v_p := ins_post(v_act_09, v_s4, 'CONFIRMADA');
 
-    v_p := ins_post(v_act_10, v_s2, 'ASIGNADA', v_adm_cur);
+    v_p := ins_post(v_act_10, v_s2, 'ASIGNADA');
 
     COMMIT;
     DBMS_OUTPUT.PUT_LINE('Seed limpio UCM (1 Superadmin, 3 Admins, 4 Staff) cargado sin errores.');
