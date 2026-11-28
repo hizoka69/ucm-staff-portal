@@ -71,7 +71,7 @@ export default function ForcePasswordChange() {
               required
               value={claveActual}
               onChange={(e) => setClaveActual(e.target.value)}
-              placeholder="Ej. Ucm2026!"
+              placeholder="Ingresa tu contraseña actual"
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-300 text-sm text-[#0A1931] focus:outline-none focus:border-[#00A9E0] focus:bg-white"
             />
           </div>

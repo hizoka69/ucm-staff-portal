@@ -67,7 +67,7 @@ export default function SuperAdminPanel() {
     nombre: '',
     apellido: '',
     correo: '',
-    password_inicial: 'Ucm2026!',
+    password_inicial: '',
   });
 
   const showToast = (type, text) => {
@@ -145,7 +145,7 @@ export default function SuperAdminPanel() {
       const res = await api.post('/gestores/usuarios/admin', newAdmin);
       showToast('success', res.data.message);
       setShowNewAdminModal(false);
-      setNewAdmin({ rut: '', nombre: '', apellido: '', correo: '', password_inicial: 'Ucm2026!' });
+      setNewAdmin({ rut: '', nombre: '', apellido: '', correo: '', password_inicial: '' });
       await loadData();
     } catch (err) {
       showToast('error', getErrorMessage(err));
@@ -525,7 +525,7 @@ export default function SuperAdminPanel() {
                     Auditoría Global de Base de Datos
                   </h1>
                   <p className="text-xs lg:text-sm text-slate-500">
-                    Bitácora inmutable generada automáticamente por los triggers Oracle (`AUDITORIA_SISTEMA`).
+                    Bitácora inmutable generada automáticamente por los triggers Oracle (`BRRJ_AUDITORIA_SISTEMA`).
                   </p>
                 </div>
 
@@ -704,6 +704,7 @@ export default function SuperAdminPanel() {
                   type="text"
                   required
                   minLength={6}
+                  placeholder="Mínimo 6 caracteres"
                   value={newAdmin.password_inicial}
                   onChange={(e) => setNewAdmin({ ...newAdmin, password_inicial: e.target.value })}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-[#F7FAFD] border border-slate-200 text-sm font-mono"

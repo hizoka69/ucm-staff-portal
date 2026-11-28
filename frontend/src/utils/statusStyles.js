@@ -64,7 +64,10 @@ export const ESTADO_ACTIVIDAD_STYLES = {
 export function getProcesoStyle(key) {
   const norm = String(key || '').toUpperCase().trim();
   if (norm === 'COMPLETADA' || norm === 'ASISTIO') return PROCESO_STYLES.VALIDADA;
+  if (norm === 'ASIGNADO') return PROCESO_STYLES.ASIGNADA;
+  if (norm === 'POSTULADO' || norm === 'CONFIRMADO') return PROCESO_STYLES.CONFIRMADA;
   if (norm === 'LISTA_ESPERA' || norm === 'EN_ESPERA') return PROCESO_STYLES.PENDIENTE;
+  if (norm === 'RECHAZADO') return PROCESO_STYLES.CANCELADA;
   return PROCESO_STYLES[norm] || PROCESO_STYLES.CONFIRMADA;
 }
 

@@ -36,7 +36,7 @@ def _naive_dt(dt: datetime) -> datetime:
 class CrearAdminIn(BaseModel):
     rut: str = Field(..., min_length=7, max_length=12)
     correo: str = Field(..., min_length=5, max_length=120)
-    password_inicial: str = Field(default="Ucm2026!", min_length=6, max_length=72)
+    password_inicial: str = Field(..., min_length=6, max_length=72)
     nombre: str = Field(..., min_length=2, max_length=50)
     apellido: str = Field(..., min_length=2, max_length=50)
     foto_url: Optional[str] = Field(default=None, max_length=255)
@@ -79,7 +79,8 @@ class AsignarManualIn(BaseModel):
 
 
 class ResolverEsperaIn(BaseModel):
-    decision: str = Field(..., pattern=r"^(ACEPTADA|RECHAZADA)$")
+    decision: str = Field(..., pattern=r"^(CONFIRMADO|RECHAZADO|ACEPTADA|RECHAZADA)$")
+    observaciones: Optional[str] = Field(default=None, max_length=300)
 
 
 class ValidarTrabajoIn(BaseModel):
@@ -112,7 +113,7 @@ def _safe_filename(name: str, fallback: str = "foto_staff.jpg") -> str:
 # ============================================================================
 @router.get("/usuarios/roles")
 def listar_roles(_=Depends(admin_or_super)):
-    return call_refcursor("pkg_gest_usuarios.listar_roles")
+    return call_refcursor("BRRJ_pkg_gest_usuarios.BRRJ_listar_roles")
 
 
 @router.get("/usuarios")
@@ -120,14 +121,14 @@ def listar_usuarios(
     id_rol: Optional[int] = Query(default=None),
     _=Depends(admin_or_super),
 ):
-    return call_refcursor("pkg_gest_usuarios.listar_por_rol", [id_rol])
+    return call_refcursor("BRRJ_pkg_gest_usuarios.BRRJ_listar_por_rol", [id_rol])
 
 
 @router.post("/usuarios/admin", status_code=status.HTTP_201_CREATED)
 def crear_admin(payload: CrearAdminIn, current_user: dict = Depends(only_super)):
     pwd_hash = hash_password(payload.password_inicial)
     new_id = call_proc_id_out(
-        "pkg_gest_usuarios.crear_admin",
+        "BRRJ_pkg_gest_usuarios.BRRJ_crear_admin",
         [
             current_user["id_usuario"],
             payload.rut,
@@ -148,7 +149,7 @@ def crear_admin(payload: CrearAdminIn, current_user: dict = Depends(only_super))
 def crear_staff(payload: CrearStaffIn, current_user: dict = Depends(only_admin)):
     pwd_hash = hash_password(payload.password_inicial)
     new_id = call_proc_id_out(
-        "pkg_gest_usuarios.crear_staff_completo",
+        "BRRJ_pkg_gest_usuarios.BRRJ_crear_staff_completo",
         [
             current_user["id_usuario"],
             payload.rut,
@@ -175,7 +176,7 @@ def cambiar_estado_usuario(
     current_user: dict = Depends(admin_or_super),
 ):
     call_proc_no_out(
-        "pkg_gest_usuarios.cambiar_estado_activo",
+        "BRRJ_pkg_gest_usuarios.BRRJ_cambiar_estado_activo",
         [current_user["id_usuario"], id_usuario, payload.activo.upper()],
     )
     return {"message": f"Estado del usuario actualizado a activo={payload.activo.upper()}."}
@@ -189,7 +190,7 @@ def actualizar_credenciales_usuario(
 ):
     nuevo_hash = hash_password(body.password_nueva) if body.password_nueva else None
     call_proc_no_out(
-        "pkg_gest_usuarios.actualizar_credenciales",
+        "BRRJ_pkg_gest_usuarios.BRRJ_actualizar_credenciales",
         [
             current_user["id_usuario"],
             id_usuario,
@@ -209,15 +210,14 @@ def eliminar_staff(
     id_usuario: int,
     current_user: dict = Depends(admin_or_super),
 ):
-    rows = call_refcursor("pkg_gest_usuarios.obtener_por_id", [id_usuario])
+    rows = call_refcursor("BRRJ_pkg_gest_usuarios.BRRJ_obtener_por_id", [id_usuario])
     foto_anterior = rows[0].get("foto_url") if rows else None
 
     call_proc_no_out(
-        "pkg_gest_usuarios.eliminar_staff",
+        "BRRJ_pkg_gest_usuarios.BRRJ_eliminar_staff",
         [current_user["id_usuario"], id_usuario],
     )
 
-    # Limpia la foto de perfil del disco si existía
     if foto_anterior and foto_anterior.startswith("/uploads/avatars/"):
         avatars_dir = Path(__file__).resolve().parent.parent.parent / "uploads" / "avatars"
         (avatars_dir / Path(foto_anterior).name).unlink(missing_ok=True)
@@ -230,15 +230,14 @@ def eliminar_usuario(
     id_usuario: int,
     current_user: dict = Depends(admin_or_super),
 ):
-    rows = call_refcursor("pkg_gest_usuarios.obtener_por_id", [id_usuario])
+    rows = call_refcursor("BRRJ_pkg_gest_usuarios.BRRJ_obtener_por_id", [id_usuario])
     foto_anterior = rows[0].get("foto_url") if rows else None
 
     call_proc_no_out(
-        "pkg_gest_usuarios.eliminar_usuario",
+        "BRRJ_pkg_gest_usuarios.BRRJ_eliminar_usuario",
         [current_user["id_usuario"], id_usuario],
     )
 
-    # Limpia la foto de perfil del disco si existía
     if foto_anterior and foto_anterior.startswith("/uploads/avatars/"):
         avatars_dir = Path(__file__).resolve().parent.parent.parent / "uploads" / "avatars"
         (avatars_dir / Path(foto_anterior).name).unlink(missing_ok=True)
@@ -256,15 +255,14 @@ def listar_calendario(
     solo_publicadas: Optional[str] = Query(default=None, pattern=r"^[SNsn]$"),
     current_user: dict = Depends(get_current_user),
 ):
-    # Activa automáticamente actividades cuya fecha_pub_programada ya venció
-    call_proc_id_out("pkg_gest_actividades.activar_programadas")
+    call_proc_id_out("BRRJ_pkg_gest_actividades.BRRJ_activar_programadas")
 
     is_staff = current_user["nombre_rol"] == "STAFF"
     filtro_pub = "S" if is_staff else (solo_publicadas.upper() if solo_publicadas else "N")
     usr_ctx = current_user["id_usuario"] if is_staff else None
 
     return call_refcursor(
-        "pkg_gest_actividades.listar_calendario",
+        "BRRJ_pkg_gest_actividades.BRRJ_listar_calendario",
         [mes, anio, filtro_pub, usr_ctx],
     )
 
@@ -272,7 +270,7 @@ def listar_calendario(
 @router.post("/actividades/{id_actividad}/publicar")
 def publicar_actividad(id_actividad: int, current_user: dict = Depends(only_admin)):
     call_proc_no_out(
-        "pkg_gest_actividades.publicar_actividad",
+        "BRRJ_pkg_gest_actividades.BRRJ_publicar_actividad",
         [id_actividad, current_user["id_usuario"]],
     )
     return {"message": "Actividad publicada correctamente en el calendario."}
@@ -285,7 +283,7 @@ def programar_actividad(
     current_user: dict = Depends(only_admin),
 ):
     call_proc_no_out(
-        "pkg_gest_actividades.programar_publicacion",
+        "BRRJ_pkg_gest_actividades.BRRJ_programar_publicacion",
         [id_actividad, _naive_dt(payload.fecha_pub_programada), current_user["id_usuario"]],
     )
     return {"message": "Publicación programada registrada correctamente."}
@@ -298,7 +296,7 @@ def cambiar_estado_actividad(
     current_user: dict = Depends(only_admin),
 ):
     call_proc_no_out(
-        "pkg_gest_actividades.cambiar_estado",
+        "BRRJ_pkg_gest_actividades.BRRJ_cambiar_estado",
         [id_actividad, payload.nombre_estado, current_user["id_usuario"]],
     )
     return {"message": f"Estado cambiado a {payload.nombre_estado.upper()}."}
@@ -306,13 +304,18 @@ def cambiar_estado_actividad(
 
 @router.post("/actividades/activar-programadas")
 def activar_programadas(_=Depends(admin_or_super)):
-    activadas = call_proc_id_out("pkg_gest_actividades.activar_programadas")
+    activadas = call_proc_id_out("BRRJ_pkg_gest_actividades.BRRJ_activar_programadas")
     return {"actividades_activadas": activadas}
 
 
 # ============================================================================
-# GESTOR 3: POSTULACIONES ATÓMICAS Y ASIGNACIÓN DIRECTA
+# GESTOR 3: POSTULACIONES ATÓMICAS, TIPO DUAL (3FN) Y ASIGNACIÓN DIRECTA
 # ============================================================================
+@router.get("/postulaciones/tipos")
+def listar_tipos_postulacion(_=Depends(get_current_user)):
+    return call_refcursor("BRRJ_pkg_gest_postulaciones.BRRJ_listar_tipos_postulacion")
+
+
 @router.post("/postulaciones/postular")
 def postular_staff(payload: PostularIn, current_user: dict = Depends(only_staff)):
     try:
@@ -321,7 +324,7 @@ def postular_staff(payload: PostularIn, current_user: dict = Depends(only_staff)
                 out_resultado = cur.var(oracledb.STRING, size=50)
                 out_id = cur.var(oracledb.NUMBER)
                 cur.callproc(
-                    "pkg_gest_postulaciones.postular_staff",
+                    "BRRJ_pkg_gest_postulaciones.BRRJ_postular_staff",
                     [payload.id_actividad, current_user["id_usuario"], out_resultado, out_id],
                 )
                 resultado = out_resultado.getvalue()
@@ -342,7 +345,7 @@ def postular_staff(payload: PostularIn, current_user: dict = Depends(only_staff)
 @router.post("/postulaciones/asignar", status_code=status.HTTP_201_CREATED)
 def asignar_manual(payload: AsignarManualIn, current_user: dict = Depends(only_admin)):
     post_id = call_proc_id_out(
-        "pkg_gest_postulaciones.asignar_staff_manual",
+        "BRRJ_pkg_gest_postulaciones.BRRJ_asignar_staff_manual",
         [payload.id_actividad, payload.id_usuario, current_user["id_usuario"]],
     )
     return {"id_postulacion": post_id, "message": "Staff asignado manualmente a la actividad."}
@@ -351,7 +354,7 @@ def asignar_manual(payload: AsignarManualIn, current_user: dict = Depends(only_a
 @router.patch("/postulaciones/{id_postulacion}/cancelar")
 def cancelar_postulacion(id_postulacion: int, current_user: dict = Depends(get_current_user)):
     call_proc_no_out(
-        "pkg_gest_postulaciones.cancelar_postulacion",
+        "BRRJ_pkg_gest_postulaciones.BRRJ_cancelar_postulacion",
         [id_postulacion, current_user["id_usuario"]],
     )
     return {"message": "Postulación cancelada correctamente."}
@@ -359,12 +362,12 @@ def cancelar_postulacion(id_postulacion: int, current_user: dict = Depends(get_c
 
 @router.get("/postulaciones/actividad/{id_actividad}")
 def postulaciones_por_actividad(id_actividad: int, _=Depends(admin_or_super)):
-    return call_refcursor("pkg_gest_postulaciones.listar_por_actividad", [id_actividad])
+    return call_refcursor("BRRJ_pkg_gest_postulaciones.BRRJ_listar_por_actividad", [id_actividad])
 
 
 @router.get("/postulaciones/mis-postulaciones")
 def mis_postulaciones(current_user: dict = Depends(only_staff)):
-    return call_refcursor("pkg_gest_postulaciones.listar_por_usuario", [current_user["id_usuario"]])
+    return call_refcursor("BRRJ_pkg_gest_postulaciones.BRRJ_listar_por_usuario", [current_user["id_usuario"]])
 
 
 @router.put("/postulaciones/{id_postulacion}/experiencia")
@@ -374,7 +377,7 @@ def actualizar_experiencia_postulacion(
     current_user: dict = Depends(only_staff),
 ):
     call_proc_no_out(
-        "pkg_gest_postulaciones.actualizar_experiencia",
+        "BRRJ_pkg_gest_postulaciones.BRRJ_actualizar_experiencia",
         [id_postulacion, current_user["id_usuario"], payload.comentario],
     )
     return {"message": "Experiencia guardada correctamente."}
@@ -385,7 +388,7 @@ def listar_fotos_postulacion(
     id_postulacion: int,
     _=Depends(get_current_user),
 ):
-    fotos = call_refcursor("pkg_gest_postulaciones.listar_fotos_postulacion", [id_postulacion])
+    fotos = call_refcursor("BRRJ_pkg_gest_postulaciones.BRRJ_listar_fotos_postulacion", [id_postulacion])
     for f in fotos:
         fid = f["id_foto"]
         f["url"] = f"/api/gestores/postulaciones/fotos/{fid}/archivo"
@@ -430,7 +433,7 @@ async def subir_foto_actividad(
             with conn.cursor() as cur:
                 out_id = cur.var(oracledb.NUMBER)
                 cur.callproc(
-                    "pkg_gest_postulaciones.agregar_foto_actividad",
+                    "BRRJ_pkg_gest_postulaciones.BRRJ_agregar_foto_actividad",
                     [id_postulacion, current_user["id_usuario"], nombre, content_type, blob_var, out_id],
                 )
                 foto_id = int(out_id.getvalue())
@@ -454,7 +457,7 @@ def eliminar_foto_actividad(
     current_user: dict = Depends(get_current_user),
 ):
     call_proc_no_out(
-        "pkg_gest_postulaciones.eliminar_foto_actividad",
+        "BRRJ_pkg_gest_postulaciones.BRRJ_eliminar_foto_actividad",
         [id_foto, current_user["id_usuario"]],
     )
     return {"message": "Fotografía eliminada correctamente."}
@@ -468,7 +471,7 @@ def obtener_archivo_foto_actividad(
     try:
         with get_connection() as conn:
             with conn.cursor() as cur, conn.cursor() as out_cur:
-                cur.callproc("pkg_gest_postulaciones.obtener_foto_blob", [id_foto, out_cur])
+                cur.callproc("BRRJ_pkg_gest_postulaciones.BRRJ_obtener_foto_blob", [id_foto, out_cur])
                 row = out_cur.fetchone()
                 if not row or row[2] is None:
                     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fotografía no encontrada.")
@@ -494,8 +497,8 @@ def informe_staff_actividad(
     id_actividad: int,
     _=Depends(admin_or_super),
 ):
-    registros = call_refcursor("pkg_gest_postulaciones.listar_informe_actividad", [id_actividad])
-    fotos = call_refcursor("pkg_gest_postulaciones.listar_fotos_actividad", [id_actividad])
+    registros = call_refcursor("BRRJ_pkg_gest_postulaciones.BRRJ_listar_informe_actividad", [id_actividad])
+    fotos = call_refcursor("BRRJ_pkg_gest_postulaciones.BRRJ_listar_fotos_actividad", [id_actividad])
 
     fotos_por_post: dict[int, list[dict]] = {}
     for f in fotos:
@@ -523,37 +526,46 @@ def informe_staff_actividad(
 
 
 # ============================================================================
-# GESTOR 4: LISTA DE ESPERA
+# GESTOR 4: EVENTOS Y VALIDACIÓN DE LISTA DE ESPERA (BRRJ_eventos / BRRJ_validacion_eventos)
 # ============================================================================
 @router.get("/lista-espera/pendientes")
 def listar_espera_pendientes(_=Depends(admin_or_super)):
-    return call_refcursor("pkg_gest_lista_espera.listar_pendientes")
+    return call_refcursor("BRRJ_pkg_gest_lista_espera.BRRJ_listar_pendientes")
 
 
 @router.get("/lista-espera/actividad/{id_actividad}")
 def listar_espera_actividad(id_actividad: int, _=Depends(admin_or_super)):
-    return call_refcursor("pkg_gest_lista_espera.listar_por_actividad", [id_actividad])
+    return call_refcursor("BRRJ_pkg_gest_lista_espera.BRRJ_listar_por_actividad", [id_actividad])
 
 
-@router.post("/lista-espera/{id_lista_espera}/resolver")
+@router.post("/lista-espera/{id_evento}/{id_usuario}/resolver")
 def resolver_lista_espera(
-    id_lista_espera: int,
+    id_evento: int,
+    id_usuario: int,
     payload: ResolverEsperaIn,
     current_user: dict = Depends(only_admin),
 ):
+    dec_norm = "CONFIRMADO" if payload.decision in ("CONFIRMADO", "ACEPTADA") else "RECHAZADO"
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 out_post_id = cur.var(oracledb.NUMBER)
                 cur.callproc(
-                    "pkg_gest_lista_espera.resolver_solicitud",
-                    [id_lista_espera, payload.decision, current_user["id_usuario"], out_post_id],
+                    "BRRJ_pkg_gest_lista_espera.BRRJ_resolver_solicitud",
+                    [
+                        id_evento,
+                        id_usuario,
+                        dec_norm,
+                        current_user["id_usuario"],
+                        payload.observaciones,
+                        out_post_id,
+                    ],
                 )
                 val = out_post_id.getvalue()
                 return {
-                    "decision": payload.decision,
+                    "decision": dec_norm,
                     "id_postulacion": int(val) if val is not None else None,
-                    "message": f"Solicitud de lista de espera marcada como {payload.decision}.",
+                    "message": f"Solicitud de lista de espera marcada como {dec_norm}.",
                 }
     except oracledb.DatabaseError as exc:
         handle_oracle_error(exc)
@@ -565,7 +577,7 @@ def promover_lista_espera(
     current_user: dict = Depends(only_admin),
 ):
     promovidos = call_proc_id_out(
-        "pkg_gest_lista_espera.promover_lista_espera",
+        "BRRJ_pkg_gest_lista_espera.BRRJ_promover_lista_espera",
         [id_actividad, current_user["id_usuario"]],
     )
     return {
@@ -585,7 +597,7 @@ def promover_lista_espera(
 @router.post("/trabajo/validar")
 def validar_trabajo(payload: ValidarTrabajoIn, current_user: dict = Depends(only_admin)):
     reg_id = call_proc_id_out(
-        "pkg_gest_trabajo.validar_trabajo",
+        "BRRJ_pkg_gest_trabajo.BRRJ_validar_trabajo",
         [
             payload.id_postulacion,
             payload.asistio.upper(),
@@ -615,7 +627,7 @@ def resumen_mensual_staff(
                 out_horas = cur.var(oracledb.NUMBER)
                 out_asist = cur.var(oracledb.NUMBER)
                 cur.callproc(
-                    "pkg_gest_trabajo.resumen_mensual_staff",
+                    "BRRJ_pkg_gest_trabajo.BRRJ_resumen_mensual_staff",
                     [target_user, mes, anio, out_horas, out_asist, out_cur],
                 )
                 detalle = cursor_to_dicts(out_cur)
@@ -636,4 +648,4 @@ def listar_auditoria(
     limite: int = Query(default=100, ge=1, le=500),
     _=Depends(admin_or_super),
 ):
-    return call_refcursor("pkg_gest_trabajo.listar_auditoria", [limite])
+    return call_refcursor("BRRJ_pkg_gest_trabajo.BRRJ_listar_auditoria", [limite])

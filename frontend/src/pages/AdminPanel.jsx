@@ -310,7 +310,7 @@ export default function AdminPanel() {
     id_carrera: '',
     generacion: 2025,
     telefono: '+569',
-    password_inicial: 'Ucm2026!',
+    password_inicial: '',
   });
   const [creatingStaff, setCreatingStaff] = useState(false);
 
@@ -740,9 +740,9 @@ const handleRegionChange = (region) => {
     }
   };
 
-  const handleResolverEspera = async (idListaEspera, decision) => {
+  const handleResolverEspera = async (idEvento, idUsuario, decision) => {
     try {
-      const res = await api.post(`/gestores/lista-espera/${idListaEspera}/resolver`, { decision });
+      const res = await api.post(`/gestores/lista-espera/${idEvento}/${idUsuario}/resolver`, { decision });
       showToast('success', res.data.message);
       await loadDashboardData();
       await loadStaffActPostulaciones(selectedStaffActId);
@@ -832,7 +832,7 @@ const handleRegionChange = (region) => {
         id_carrera: carreras[0] ? String(carreras[0].id_carrera) : '',
         generacion: 2025,
         telefono: '+569',
-        password_inicial: 'Ucm2026!',
+        password_inicial: '',
       });
       await loadDashboardData();
     } catch (err) {
@@ -1919,7 +1919,7 @@ const handleRegionChange = (region) => {
                             const p = resolvePerson(item);
                             return (
                               <div
-                                key={item.id_lista_espera}
+                                key={`${item.id_evento}-${item.id_usuario}`}
                                 className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-xs space-y-4"
                               >
                                 <div className="flex items-center gap-3.5">
@@ -1941,13 +1941,13 @@ const handleRegionChange = (region) => {
                                 </div>
                                 <div className="grid grid-cols-2 gap-2.5">
                                   <button
-                                    onClick={() => handleResolverEspera(item.id_lista_espera, 'ACEPTADA')}
+                                    onClick={() => handleResolverEspera(item.id_evento, item.id_usuario, 'CONFIRMADO')}
                                     className="py-2.5 rounded-xl bg-[#0F9D75] text-white text-sm font-bold shadow-xs"
                                   >
                                     Asignar
                                   </button>
                                   <button
-                                    onClick={() => handleResolverEspera(item.id_lista_espera, 'RECHAZADA')}
+                                    onClick={() => handleResolverEspera(item.id_evento, item.id_usuario, 'RECHAZADO')}
                                     className="py-2.5 rounded-xl bg-slate-200 text-slate-700 text-sm font-bold"
                                   >
                                     Rechazar
@@ -1999,9 +1999,10 @@ const handleRegionChange = (region) => {
                                     </div>
                                   </div>
                                   <span
-                                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 ${getProcesoStyle(row.estado_postulacion).badge}`}
+                                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 ${getProcesoStyle(row.nombre_tipo_postulacion || row.estado_postulacion).badge}`}
+                                    title={`Estado: ${row.estado_postulacion} · Tipo: ${row.nombre_tipo_postulacion || 'POSTULADO'}`}
                                   >
-                                    {row.estado_postulacion}
+                                    {row.nombre_tipo_postulacion || row.estado_postulacion}
                                   </span>
                                 </div>
                               );
@@ -2211,9 +2212,10 @@ const handleRegionChange = (region) => {
                                       </span>
                                     </div>
                                     <span
-                                      className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${getProcesoStyle(row.estado_postulacion).badge}`}
+                                      className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${getProcesoStyle(row.nombre_tipo_postulacion || row.estado_postulacion).badge}`}
+                                      title={`Estado: ${row.estado_postulacion} · Tipo: ${row.nombre_tipo_postulacion || 'POSTULADO'}`}
                                     >
-                                      {row.estado_postulacion}
+                                      {row.nombre_tipo_postulacion || row.estado_postulacion}
                                     </span>
                                   </div>
                                 );
@@ -2286,7 +2288,7 @@ const handleRegionChange = (region) => {
                             const p = resolvePerson(item);
                             return (
                               <div
-                                key={item.id_lista_espera}
+                                key={`${item.id_evento}-${item.id_usuario}`}
                                 className="flex items-center justify-between gap-2"
                               >
                                 <div className="flex items-center gap-2.5 min-w-0">
@@ -2305,13 +2307,13 @@ const handleRegionChange = (region) => {
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0">
                                   <button
-                                    onClick={() => handleResolverEspera(item.id_lista_espera, 'ACEPTADA')}
+                                    onClick={() => handleResolverEspera(item.id_evento, item.id_usuario, 'CONFIRMADO')}
                                     className="px-3 py-1.5 rounded-full bg-[#0F9D75] hover:bg-[#0C8260] text-white text-xs font-bold transition cursor-pointer"
                                   >
                                     Asignar cupo
                                   </button>
                                   <button
-                                    onClick={() => handleResolverEspera(item.id_lista_espera, 'RECHAZADA')}
+                                    onClick={() => handleResolverEspera(item.id_evento, item.id_usuario, 'RECHAZADO')}
                                     className="p-1.5 rounded-full bg-slate-100 hover:bg-red-50 text-slate-500 hover:text-red-600 transition cursor-pointer"
                                     title="Rechazar solicitud"
                                   >
@@ -2518,7 +2520,7 @@ const handleRegionChange = (region) => {
 
 
     {/* ===================================================================== */}
-      {/* MODAL: CREAR CREDENCIAL STAFF (pkg_gest_usuarios.crear_staff_completo)*/}
+      {/* MODAL: CREAR CREDENCIAL STAFF (BRRJ_pkg_gest_usuarios.BRRJ_crear_staff_completo) */}
       {/* ===================================================================== */}
       {showNewStaffModal && (
         <div className="fixed inset-0 z-50 bg-[#0A1931]/55 backdrop-blur-xs flex items-center justify-center p-4">
@@ -2634,6 +2636,7 @@ const handleRegionChange = (region) => {
                   type="text"
                   required
                   minLength={6}
+                  placeholder="Mínimo 6 caracteres"
                   value={newStaff.password_inicial}
                   onChange={(e) => setNewStaff({ ...newStaff, password_inicial: e.target.value })}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-[#F7FAFD] border border-slate-200 text-sm font-mono"

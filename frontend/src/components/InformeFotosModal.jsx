@@ -230,7 +230,9 @@ export default function InformeFotosModal({ open, actividad, onClose }) {
                   ? 'VALIDADA'
                   : r.asistio === 'N'
                     ? 'INASISTENCIA'
-                    : r.estado_postulacion;
+                    : r.nombre_tipo_postulacion === 'ASIGNADO'
+                      ? 'ASIGNADA'
+                      : r.estado_postulacion;
               const pStyle = getProcesoStyle(procesoKey);
               const fotos = r.fotos || [];
 

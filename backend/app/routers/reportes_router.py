@@ -17,7 +17,7 @@ def rep_ranking_staff(
     anio: Optional[int] = Query(default=None, ge=2020, le=2035),
     _=Depends(admin_or_super),
 ):
-    return call_refcursor("pkg_rep_horas_staff.rep_ranking_staff", [mes, anio])
+    return call_refcursor("BRRJ_pkg_rep_horas_staff.BRRJ_rep_ranking_staff", [mes, anio])
 
 
 @router.get("/horas-facultad")
@@ -26,7 +26,7 @@ def rep_horas_por_facultad(
     anio: Optional[int] = Query(default=None, ge=2020, le=2035),
     _=Depends(admin_or_super),
 ):
-    return call_refcursor("pkg_rep_horas_staff.rep_horas_por_facultad", [mes, anio])
+    return call_refcursor("BRRJ_pkg_rep_horas_staff.BRRJ_rep_horas_por_facultad", [mes, anio])
 
 
 # REPORTE 2: COBERTURA Y DEMANDA INSATISFECHA
@@ -36,7 +36,7 @@ def rep_cobertura_actividades(
     anio: Optional[int] = Query(default=None, ge=2020, le=2035),
     _=Depends(admin_or_super),
 ):
-    return call_refcursor("pkg_rep_cobertura.rep_cobertura_actividades", [mes, anio])
+    return call_refcursor("BRRJ_pkg_rep_cobertura.BRRJ_rep_cobertura_actividades", [mes, anio])
 
 
 @router.get("/demanda-tipo")
@@ -44,7 +44,7 @@ def rep_demanda_por_tipo(
     anio: Optional[int] = Query(default=None, ge=2020, le=2035),
     _=Depends(admin_or_super),
 ):
-    return call_refcursor("pkg_rep_cobertura.rep_demanda_por_tipo", [anio])
+    return call_refcursor("BRRJ_pkg_rep_cobertura.BRRJ_rep_demanda_por_tipo", [anio])
 
 
 # REPORTE 3: DASHBOARD EJECUTIVO (KPIS + TENDENCIA ANUAL)
@@ -54,7 +54,7 @@ def rep_kpis_generales(
     anio: Optional[int] = Query(default=None, ge=2020, le=2035),
     _=Depends(admin_or_super),
 ):
-    rows = call_refcursor("pkg_rep_ejecutivo.rep_kpis_generales", [mes, anio])
+    rows = call_refcursor("BRRJ_pkg_rep_ejecutivo.BRRJ_rep_kpis_generales", [mes, anio])
     return rows[0] if rows else {}
 
 
@@ -63,4 +63,4 @@ def rep_tendencia_mensual(
     anio: int = Query(default=2026, ge=2020, le=2035),
     _=Depends(admin_or_super),
 ):
-    return call_refcursor("pkg_rep_ejecutivo.rep_tendencia_mensual", [anio])
+    return call_refcursor("BRRJ_pkg_rep_ejecutivo.BRRJ_rep_tendencia_mensual", [anio])

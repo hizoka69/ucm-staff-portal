@@ -418,7 +418,7 @@ export default function StaffPortal() {
     if (!q) return misPostulaciones;
     return misPostulaciones.filter((p) =>
       normalizeSearchText(
-        `${p.titulo} ${p.nombre_lugar} ${p.nombre_ciudad} ${p.nombre_tipo} ${p.estado_postulacion} ${p.fecha_actividad} ${
+        `${p.titulo} ${p.nombre_lugar} ${p.nombre_ciudad} ${p.nombre_tipo} ${p.estado_postulacion} ${p.nombre_tipo_postulacion || ''} ${p.fecha_actividad} ${
           p.asistio === 'S' ? 'validada asistio' : p.asistio === 'N' ? 'inasistencia' : ''
         }`
       ).includes(q)
@@ -431,7 +431,9 @@ export default function StaffPortal() {
 
     // 1. Actividades donde fuiste asignado (por Admin o promovido desde Lista de Espera)
     misPostulaciones.forEach((p) => {
-      if (p.estado_postulacion === 'ASIGNADA' && !p.asistio) {
+      const esAsignado =
+        p.estado_postulacion === 'CONFIRMADA' && p.nombre_tipo_postulacion === 'ASIGNADO';
+      if (esAsignado && !p.asistio) {
         list.push({
           id: `asignada-${p.id_postulacion}`,
           tipo: 'ASIGNADA',
@@ -447,9 +449,9 @@ export default function StaffPortal() {
 
     // 2. Nuevas actividades publicadas abiertas para postular (en cualquier mes)
     todasActividades.forEach((a) => {
-      const yaInscrito =
-        a.mi_estado_postulacion === 'CONFIRMADA' || a.mi_estado_postulacion === 'ASIGNADA';
-      const enEspera = a.mi_estado_espera === 'PENDIENTE';
+      const yaInscrito = a.mi_estado_postulacion === 'CONFIRMADA';
+      const enEspera =
+        a.mi_estado_espera === 'EN_ESPERA' || a.mi_estado_espera === 'PENDIENTE';
       if (!yaInscrito && !enEspera && a.postulacion_cerrada !== 'S') {
         const isFull = a.cupos_disponibles <= 0;
         list.push({
@@ -472,7 +474,9 @@ export default function StaffPortal() {
 
     // 3. Turnos confirmados próximos sin validar aún
     misPostulaciones.forEach((p) => {
-      if (p.estado_postulacion === 'CONFIRMADA' && !p.asistio && p.nombre_estado !== 'FINALIZADA') {
+      const esPostuladoConfirmado =
+        p.estado_postulacion === 'CONFIRMADA' && p.nombre_tipo_postulacion !== 'ASIGNADO';
+      if (esPostuladoConfirmado && !p.asistio && p.nombre_estado !== 'FINALIZADA') {
         list.push({
           id: `confirmada-${p.id_postulacion}`,
           tipo: 'CONFIRMADA',
@@ -660,9 +664,10 @@ export default function StaffPortal() {
         parsed &&
         parsed.month === mes &&
         parsed.year === anio &&
-        ['CONFIRMADA', 'ASIGNADA'].includes(p.estado_postulacion) &&
+        p.estado_postulacion === 'CONFIRMADA' &&
         !seen.has(p.id_actividad)
       ) {
+        const esAsignado = p.nombre_tipo_postulacion === 'ASIGNADO';
         rows.push({
           id: `post-${p.id_postulacion}`,
           idActividad: p.id_actividad,
@@ -671,8 +676,8 @@ export default function StaffPortal() {
           horaInicio: p.hora_inicio || '',
           lugar: p.nombre_lugar || '',
           ciudad: p.nombre_ciudad || '',
-          estado: p.estado_postulacion === 'ASIGNADA' ? 'Asignada' : 'Confirmada',
-          procesoKey: p.estado_postulacion,
+          estado: esAsignado ? 'Asignada' : 'Confirmada',
+          procesoKey: esAsignado ? 'ASIGNADA' : 'CONFIRMADA',
           completed: false,
           fecha: p.fecha_actividad,
           day: parsed.day,
@@ -718,7 +723,7 @@ export default function StaffPortal() {
     () =>
       misPostulaciones.filter(
         (p) =>
-          ['CONFIRMADA', 'ASIGNADA'].includes(p.estado_postulacion) &&
+          p.estado_postulacion === 'CONFIRMADA' &&
           !p.asistio &&
           p.nombre_estado !== 'FINALIZADA'
       ).length,
@@ -744,7 +749,7 @@ export default function StaffPortal() {
   const monthCells = useMemo(() => buildMonthGrid(anio, mes), [anio, mes]);
 
   const renderPostularStatus = (act) => {
-    if (act.mi_estado_postulacion === 'ASIGNADA') {
+    if (act.mi_estado_postulacion === 'CONFIRMADA' && act.mi_tipo_postulacion === 'ASIGNADO') {
       return {
         label: 'Asignado',
         disabled: true,
@@ -758,7 +763,7 @@ export default function StaffPortal() {
         style: getProcesoStyle('CONFIRMADA').badge,
       };
     }
-    if (act.mi_estado_espera === 'PENDIENTE') {
+    if (act.mi_estado_espera === 'EN_ESPERA' || act.mi_estado_espera === 'PENDIENTE') {
       return {
         label: 'En lista de espera',
         disabled: true,
@@ -1181,7 +1186,7 @@ export default function StaffPortal() {
                           >
                             {vis.badgeLabel} · {act.cantidad_horas}h
                           </span>
-                          {act.mi_estado_postulacion === 'ASIGNADA' ? (
+                          {act.mi_estado_postulacion === 'CONFIRMADA' && act.mi_tipo_postulacion === 'ASIGNADO' ? (
                             <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${getProcesoStyle('ASIGNADA').badge}`}>
                               Asignado
                             </span>
@@ -1189,7 +1194,7 @@ export default function StaffPortal() {
                             <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${getProcesoStyle('CONFIRMADA').badge}`}>
                               Confirmado
                             </span>
-                          ) : act.mi_estado_espera === 'PENDIENTE' ? (
+                          ) : act.mi_estado_espera === 'EN_ESPERA' || act.mi_estado_espera === 'PENDIENTE' ? (
                             <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${getProcesoStyle('PENDIENTE').badge}`}>
                               En espera
                             </span>
@@ -1649,7 +1654,7 @@ export default function StaffPortal() {
                 <div className="space-y-3">
                   {filteredMisPostulaciones.map((p) => {
                     const puedeCancelar =
-                      ['CONFIRMADA', 'ASIGNADA'].includes(p.estado_postulacion) &&
+                      p.estado_postulacion === 'CONFIRMADA' &&
                       !p.asistio &&
                       p.nombre_estado !== 'FINALIZADA';
 
@@ -1695,8 +1700,10 @@ export default function StaffPortal() {
                               Cancelada
                             </span>
                           ) : (
-                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getProcesoStyle(p.estado_postulacion).badge}`}>
-                              {p.estado_postulacion === 'ASIGNADA' ? 'Asignada' : 'Confirmada'}
+                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getProcesoStyle(p.nombre_tipo_postulacion === 'ASIGNADO' ? 'ASIGNADO' : p.estado_postulacion).badge}`}>
+                              {p.nombre_tipo_postulacion === 'ASIGNADO'
+                                ? 'Confirmada · Asignado'
+                                : 'Confirmada · Postulado'}
                             </span>
                           )}
 

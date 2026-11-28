@@ -45,7 +45,7 @@ def login(payload: LoginRequest):
 
     if "@" not in identificador:
         rut_buscado = _normalizar_rut(identificador)
-        todos = call_refcursor("pkg_gest_usuarios.listar_por_rol", [None])
+        todos = call_refcursor("BRRJ_pkg_gest_usuarios.BRRJ_listar_por_rol", [None])
         match = next(
             (u for u in todos if _normalizar_rut(u.get("rut", "")) == rut_buscado),
             None,
@@ -57,7 +57,7 @@ def login(payload: LoginRequest):
             )
         correo_objetivo = match["correo"].lower()
 
-    rows = call_refcursor("pkg_gest_usuarios.obtener_por_correo", [correo_objetivo])
+    rows = call_refcursor("BRRJ_pkg_gest_usuarios.BRRJ_obtener_por_correo", [correo_objetivo])
     if not rows:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -97,7 +97,7 @@ def cambiar_clave(
     payload: CambiarClaveRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    rows = call_refcursor("pkg_gest_usuarios.obtener_por_correo", [current_user["correo"]])
+    rows = call_refcursor("BRRJ_pkg_gest_usuarios.BRRJ_obtener_por_correo", [current_user["correo"]])
     if not rows or not verify_password(payload.clave_actual, rows[0].get("password_hash", "")):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -111,7 +111,7 @@ def cambiar_clave(
         )
 
     nuevo_hash = hash_password(payload.clave_nueva)
-    call_proc_no_out("pkg_gest_usuarios.cambiar_clave", [current_user["id_usuario"], nuevo_hash])
+    call_proc_no_out("BRRJ_pkg_gest_usuarios.BRRJ_cambiar_clave", [current_user["id_usuario"], nuevo_hash])
 
     return {
         "message": "Contraseña actualizada correctamente.",
@@ -130,7 +130,7 @@ def cambiar_mi_clave(
             detail="La nueva contraseña debe ser diferente a la actual.",
         )
 
-    rows = call_refcursor("pkg_gest_usuarios.obtener_por_correo", [user["correo"]])
+    rows = call_refcursor("BRRJ_pkg_gest_usuarios.BRRJ_obtener_por_correo", [user["correo"]])
     if not rows or not verify_password(body.password_actual, rows[0].get("password_hash", "")):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -138,7 +138,7 @@ def cambiar_mi_clave(
         )
 
     nuevo_hash = hash_password(body.password_nueva)
-    call_proc_no_out("pkg_gest_usuarios.cambiar_clave", [user["id_usuario"], nuevo_hash])
+    call_proc_no_out("BRRJ_pkg_gest_usuarios.BRRJ_cambiar_clave", [user["id_usuario"], nuevo_hash])
 
     return {"message": "Contraseña actualizada correctamente."}
 
@@ -174,7 +174,7 @@ async def subir_foto_perfil(
             blob_var.write(content)
             with conn.cursor() as cur:
                 cur.callproc(
-                    "pkg_gest_usuarios.actualizar_foto_blob",
+                    "BRRJ_pkg_gest_usuarios.BRRJ_actualizar_foto_blob",
                     [current_user["id_usuario"], nueva_url, blob_var, content_type],
                 )
     except oracledb.DatabaseError as exc:
@@ -191,7 +191,7 @@ def obtener_avatar_usuario(id_usuario: int):
     try:
         with get_connection() as conn:
             with conn.cursor() as cur, conn.cursor() as out_cur:
-                cur.callproc("pkg_gest_usuarios.obtener_foto_blob", [id_usuario, out_cur])
+                cur.callproc("BRRJ_pkg_gest_usuarios.BRRJ_obtener_foto_blob", [id_usuario, out_cur])
                 row = out_cur.fetchone()
                 if not row or row[0] is None:
                     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avatar no encontrado.")

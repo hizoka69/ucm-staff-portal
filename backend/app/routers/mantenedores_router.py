@@ -91,12 +91,12 @@ class ActividadIn(BaseModel):
 # ============================================================================
 @router.get("/facultades")
 def listar_facultades(_=Depends(get_current_user)):
-    return call_refcursor("pkg_mant_facultades.listar")
+    return call_refcursor("BRRJ_pkg_mant_facultades.BRRJ_listar")
 
 
 @router.get("/facultades/{id_facultad}")
 def obtener_facultad(id_facultad: int, _=Depends(get_current_user)):
-    rows = call_refcursor("pkg_mant_facultades.obtener", [id_facultad])
+    rows = call_refcursor("BRRJ_pkg_mant_facultades.BRRJ_obtener", [id_facultad])
     if not rows:
         raise HTTPException(status_code=404, detail="Facultad no encontrada.")
     return rows[0]
@@ -104,19 +104,19 @@ def obtener_facultad(id_facultad: int, _=Depends(get_current_user)):
 
 @router.post("/facultades", status_code=status.HTTP_201_CREATED)
 def crear_facultad(payload: FacultadIn, _=Depends(admin_or_super)):
-    new_id = call_proc_id_out("pkg_mant_facultades.crear", [payload.nombre_facultad, payload.siglas])
+    new_id = call_proc_id_out("BRRJ_pkg_mant_facultades.BRRJ_crear", [payload.nombre_facultad, payload.siglas])
     return {"id_facultad": new_id, "message": "Facultad creada correctamente."}
 
 
 @router.put("/facultades/{id_facultad}")
 def actualizar_facultad(id_facultad: int, payload: FacultadIn, _=Depends(admin_or_super)):
-    call_proc_no_out("pkg_mant_facultades.actualizar", [id_facultad, payload.nombre_facultad, payload.siglas])
+    call_proc_no_out("BRRJ_pkg_mant_facultades.BRRJ_actualizar", [id_facultad, payload.nombre_facultad, payload.siglas])
     return {"message": "Facultad actualizada correctamente."}
 
 
 @router.delete("/facultades/{id_facultad}")
 def eliminar_facultad(id_facultad: int, _=Depends(admin_or_super)):
-    call_proc_no_out("pkg_mant_facultades.eliminar", [id_facultad])
+    call_proc_no_out("BRRJ_pkg_mant_facultades.BRRJ_eliminar", [id_facultad])
     return {"message": "Facultad eliminada correctamente."}
 
 
@@ -125,12 +125,12 @@ def eliminar_facultad(id_facultad: int, _=Depends(admin_or_super)):
 # ============================================================================
 @router.get("/carreras")
 def listar_carreras(_=Depends(get_current_user)):
-    return call_refcursor("pkg_mant_carreras.listar")
+    return call_refcursor("BRRJ_pkg_mant_carreras.BRRJ_listar")
 
 
 @router.get("/carreras/{id_carrera}")
 def obtener_carrera(id_carrera: int, _=Depends(get_current_user)):
-    rows = call_refcursor("pkg_mant_carreras.obtener", [id_carrera])
+    rows = call_refcursor("BRRJ_pkg_mant_carreras.BRRJ_obtener", [id_carrera])
     if not rows:
         raise HTTPException(status_code=404, detail="Carrera no encontrada.")
     return rows[0]
@@ -138,19 +138,19 @@ def obtener_carrera(id_carrera: int, _=Depends(get_current_user)):
 
 @router.post("/carreras", status_code=status.HTTP_201_CREATED)
 def crear_carrera(payload: CarreraIn, _=Depends(admin_or_super)):
-    new_id = call_proc_id_out("pkg_mant_carreras.crear", [payload.id_facultad, payload.nombre_carrera])
+    new_id = call_proc_id_out("BRRJ_pkg_mant_carreras.BRRJ_crear", [payload.id_facultad, payload.nombre_carrera])
     return {"id_carrera": new_id, "message": "Carrera creada correctamente."}
 
 
 @router.put("/carreras/{id_carrera}")
 def actualizar_carrera(id_carrera: int, payload: CarreraIn, _=Depends(admin_or_super)):
-    call_proc_no_out("pkg_mant_carreras.actualizar", [id_carrera, payload.id_facultad, payload.nombre_carrera])
+    call_proc_no_out("BRRJ_pkg_mant_carreras.BRRJ_actualizar", [id_carrera, payload.id_facultad, payload.nombre_carrera])
     return {"message": "Carrera actualizada correctamente."}
 
 
 @router.delete("/carreras/{id_carrera}")
 def eliminar_carrera(id_carrera: int, _=Depends(admin_or_super)):
-    call_proc_no_out("pkg_mant_carreras.eliminar", [id_carrera])
+    call_proc_no_out("BRRJ_pkg_mant_carreras.BRRJ_eliminar", [id_carrera])
     return {"message": "Carrera eliminada correctamente."}
 
 
@@ -159,12 +159,12 @@ def eliminar_carrera(id_carrera: int, _=Depends(admin_or_super)):
 # ============================================================================
 @router.get("/regiones")
 def listar_regiones(_=Depends(get_current_user)):
-    return call_refcursor("pkg_mant_regiones.listar")
+    return call_refcursor("BRRJ_pkg_mant_regiones.BRRJ_listar")
 
 
 @router.get("/regiones/{id_region}")
 def obtener_region(id_region: int, _=Depends(get_current_user)):
-    rows = call_refcursor("pkg_mant_regiones.obtener", [id_region])
+    rows = call_refcursor("BRRJ_pkg_mant_regiones.BRRJ_obtener", [id_region])
     if not rows:
         raise HTTPException(status_code=404, detail="Región no encontrada.")
     return rows[0]
@@ -172,19 +172,19 @@ def obtener_region(id_region: int, _=Depends(get_current_user)):
 
 @router.post("/regiones", status_code=status.HTTP_201_CREATED)
 def crear_region(payload: RegionIn, _=Depends(admin_or_super)):
-    new_id = call_proc_id_out("pkg_mant_regiones.crear", [payload.nombre_region, payload.codigo_romano])
+    new_id = call_proc_id_out("BRRJ_pkg_mant_regiones.BRRJ_crear", [payload.nombre_region, payload.codigo_romano])
     return {"id_region": new_id, "message": "Región creada correctamente."}
 
 
 @router.put("/regiones/{id_region}")
 def actualizar_region(id_region: int, payload: RegionIn, _=Depends(admin_or_super)):
-    call_proc_no_out("pkg_mant_regiones.actualizar", [id_region, payload.nombre_region, payload.codigo_romano])
+    call_proc_no_out("BRRJ_pkg_mant_regiones.BRRJ_actualizar", [id_region, payload.nombre_region, payload.codigo_romano])
     return {"message": "Región actualizada correctamente."}
 
 
 @router.delete("/regiones/{id_region}")
 def eliminar_region(id_region: int, _=Depends(admin_or_super)):
-    call_proc_no_out("pkg_mant_regiones.eliminar", [id_region])
+    call_proc_no_out("BRRJ_pkg_mant_regiones.BRRJ_eliminar", [id_region])
     return {"message": "Región eliminada correctamente."}
 
 
@@ -193,12 +193,12 @@ def eliminar_region(id_region: int, _=Depends(admin_or_super)):
 # ============================================================================
 @router.get("/ciudades")
 def listar_ciudades(_=Depends(get_current_user)):
-    return call_refcursor("pkg_mant_ciudades.listar")
+    return call_refcursor("BRRJ_pkg_mant_ciudades.BRRJ_listar")
 
 
 @router.get("/ciudades/{id_ciudad}")
 def obtener_ciudad(id_ciudad: int, _=Depends(get_current_user)):
-    rows = call_refcursor("pkg_mant_ciudades.obtener", [id_ciudad])
+    rows = call_refcursor("BRRJ_pkg_mant_ciudades.BRRJ_obtener", [id_ciudad])
     if not rows:
         raise HTTPException(status_code=404, detail="Ciudad no encontrada.")
     return rows[0]
@@ -206,19 +206,19 @@ def obtener_ciudad(id_ciudad: int, _=Depends(get_current_user)):
 
 @router.post("/ciudades", status_code=status.HTTP_201_CREATED)
 def crear_ciudad(payload: CiudadIn, _=Depends(admin_or_super)):
-    new_id = call_proc_id_out("pkg_mant_ciudades.crear", [payload.id_region, payload.nombre_ciudad])
+    new_id = call_proc_id_out("BRRJ_pkg_mant_ciudades.BRRJ_crear", [payload.id_region, payload.nombre_ciudad])
     return {"id_ciudad": new_id, "message": "Ciudad creada correctamente."}
 
 
 @router.put("/ciudades/{id_ciudad}")
 def actualizar_ciudad(id_ciudad: int, payload: CiudadIn, _=Depends(admin_or_super)):
-    call_proc_no_out("pkg_mant_ciudades.actualizar", [id_ciudad, payload.id_region, payload.nombre_ciudad])
+    call_proc_no_out("BRRJ_pkg_mant_ciudades.BRRJ_actualizar", [id_ciudad, payload.id_region, payload.nombre_ciudad])
     return {"message": "Ciudad actualizada correctamente."}
 
 
 @router.delete("/ciudades/{id_ciudad}")
 def eliminar_ciudad(id_ciudad: int, _=Depends(admin_or_super)):
-    call_proc_no_out("pkg_mant_ciudades.eliminar", [id_ciudad])
+    call_proc_no_out("BRRJ_pkg_mant_ciudades.BRRJ_eliminar", [id_ciudad])
     return {"message": "Ciudad eliminada correctamente."}
 
 
@@ -227,12 +227,12 @@ def eliminar_ciudad(id_ciudad: int, _=Depends(admin_or_super)):
 # ============================================================================
 @router.get("/ubicaciones")
 def listar_ubicaciones(_=Depends(get_current_user)):
-    return call_refcursor("pkg_mant_ubicaciones.listar")
+    return call_refcursor("BRRJ_pkg_mant_ubicaciones.BRRJ_listar")
 
 
 @router.get("/ubicaciones/{id_ubicacion}")
 def obtener_ubicacion(id_ubicacion: int, _=Depends(get_current_user)):
-    rows = call_refcursor("pkg_mant_ubicaciones.obtener", [id_ubicacion])
+    rows = call_refcursor("BRRJ_pkg_mant_ubicaciones.BRRJ_obtener", [id_ubicacion])
     if not rows:
         raise HTTPException(status_code=404, detail="Ubicación no encontrada.")
     return rows[0]
@@ -241,7 +241,7 @@ def obtener_ubicacion(id_ubicacion: int, _=Depends(get_current_user)):
 @router.post("/ubicaciones", status_code=status.HTTP_201_CREATED)
 def crear_ubicacion(payload: UbicacionIn, _=Depends(admin_or_super)):
     new_id = call_proc_id_out(
-        "pkg_mant_ubicaciones.crear",
+        "BRRJ_pkg_mant_ubicaciones.BRRJ_crear",
         [payload.id_ciudad, payload.nombre_lugar, payload.direccion, payload.url_google_maps],
     )
     return {"id_ubicacion": new_id, "message": "Ubicación creada correctamente."}
@@ -250,7 +250,7 @@ def crear_ubicacion(payload: UbicacionIn, _=Depends(admin_or_super)):
 @router.put("/ubicaciones/{id_ubicacion}")
 def actualizar_ubicacion(id_ubicacion: int, payload: UbicacionIn, _=Depends(admin_or_super)):
     call_proc_no_out(
-        "pkg_mant_ubicaciones.actualizar",
+        "BRRJ_pkg_mant_ubicaciones.BRRJ_actualizar",
         [id_ubicacion, payload.id_ciudad, payload.nombre_lugar, payload.direccion, payload.url_google_maps],
     )
     return {"message": "Ubicación actualizada correctamente."}
@@ -258,7 +258,7 @@ def actualizar_ubicacion(id_ubicacion: int, payload: UbicacionIn, _=Depends(admi
 
 @router.delete("/ubicaciones/{id_ubicacion}")
 def eliminar_ubicacion(id_ubicacion: int, _=Depends(admin_or_super)):
-    call_proc_no_out("pkg_mant_ubicaciones.eliminar", [id_ubicacion])
+    call_proc_no_out("BRRJ_pkg_mant_ubicaciones.BRRJ_eliminar", [id_ubicacion])
     return {"message": "Ubicación eliminada correctamente."}
 
 
@@ -267,12 +267,12 @@ def eliminar_ubicacion(id_ubicacion: int, _=Depends(admin_or_super)):
 # ============================================================================
 @router.get("/tipos-actividad")
 def listar_tipos_actividad(_=Depends(get_current_user)):
-    return call_refcursor("pkg_mant_tipos_act.listar")
+    return call_refcursor("BRRJ_pkg_mant_tipos_act.BRRJ_listar")
 
 
 @router.get("/tipos-actividad/{id_tipo}")
 def obtener_tipo_actividad(id_tipo: int, _=Depends(get_current_user)):
-    rows = call_refcursor("pkg_mant_tipos_act.obtener", [id_tipo])
+    rows = call_refcursor("BRRJ_pkg_mant_tipos_act.BRRJ_obtener", [id_tipo])
     if not rows:
         raise HTTPException(status_code=404, detail="Tipo de actividad no encontrado.")
     return rows[0]
@@ -280,19 +280,19 @@ def obtener_tipo_actividad(id_tipo: int, _=Depends(get_current_user)):
 
 @router.post("/tipos-actividad", status_code=status.HTTP_201_CREATED)
 def crear_tipo_actividad(payload: TipoActividadIn, _=Depends(admin_or_super)):
-    new_id = call_proc_id_out("pkg_mant_tipos_act.crear", [payload.nombre_tipo, payload.color_hex])
+    new_id = call_proc_id_out("BRRJ_pkg_mant_tipos_act.BRRJ_crear", [payload.nombre_tipo, payload.color_hex])
     return {"id_tipo_actividad": new_id, "message": "Tipo de actividad creado correctamente."}
 
 
 @router.put("/tipos-actividad/{id_tipo}")
 def actualizar_tipo_actividad(id_tipo: int, payload: TipoActividadIn, _=Depends(admin_or_super)):
-    call_proc_no_out("pkg_mant_tipos_act.actualizar", [id_tipo, payload.nombre_tipo, payload.color_hex])
+    call_proc_no_out("BRRJ_pkg_mant_tipos_act.BRRJ_actualizar", [id_tipo, payload.nombre_tipo, payload.color_hex])
     return {"message": "Tipo de actividad actualizado correctamente."}
 
 
 @router.delete("/tipos-actividad/{id_tipo}")
 def eliminar_tipo_actividad(id_tipo: int, _=Depends(admin_or_super)):
-    call_proc_no_out("pkg_mant_tipos_act.eliminar", [id_tipo])
+    call_proc_no_out("BRRJ_pkg_mant_tipos_act.BRRJ_eliminar", [id_tipo])
     return {"message": "Tipo de actividad eliminado correctamente."}
 
 
@@ -301,12 +301,12 @@ def eliminar_tipo_actividad(id_tipo: int, _=Depends(admin_or_super)):
 # ============================================================================
 @router.get("/estados-actividad")
 def listar_estados_actividad(_=Depends(get_current_user)):
-    return call_refcursor("pkg_mant_estados_act.listar")
+    return call_refcursor("BRRJ_pkg_mant_estados_act.BRRJ_listar")
 
 
 @router.get("/estados-actividad/{id_estado}")
 def obtener_estado_actividad(id_estado: int, _=Depends(get_current_user)):
-    rows = call_refcursor("pkg_mant_estados_act.obtener", [id_estado])
+    rows = call_refcursor("BRRJ_pkg_mant_estados_act.BRRJ_obtener", [id_estado])
     if not rows:
         raise HTTPException(status_code=404, detail="Estado de actividad no encontrado.")
     return rows[0]
@@ -314,19 +314,19 @@ def obtener_estado_actividad(id_estado: int, _=Depends(get_current_user)):
 
 @router.post("/estados-actividad", status_code=status.HTTP_201_CREATED)
 def crear_estado_actividad(payload: EstadoActividadIn, _=Depends(admin_or_super)):
-    new_id = call_proc_id_out("pkg_mant_estados_act.crear", [payload.nombre_estado, payload.descripcion])
+    new_id = call_proc_id_out("BRRJ_pkg_mant_estados_act.BRRJ_crear", [payload.nombre_estado, payload.descripcion])
     return {"id_estado_actividad": new_id, "message": "Estado de actividad creado correctamente."}
 
 
 @router.put("/estados-actividad/{id_estado}")
 def actualizar_estado_actividad(id_estado: int, payload: EstadoActividadIn, _=Depends(admin_or_super)):
-    call_proc_no_out("pkg_mant_estados_act.actualizar", [id_estado, payload.nombre_estado, payload.descripcion])
+    call_proc_no_out("BRRJ_pkg_mant_estados_act.BRRJ_actualizar", [id_estado, payload.nombre_estado, payload.descripcion])
     return {"message": "Estado de actividad actualizado correctamente."}
 
 
 @router.delete("/estados-actividad/{id_estado}")
 def eliminar_estado_actividad(id_estado: int, _=Depends(admin_or_super)):
-    call_proc_no_out("pkg_mant_estados_act.eliminar", [id_estado])
+    call_proc_no_out("BRRJ_pkg_mant_estados_act.BRRJ_eliminar", [id_estado])
     return {"message": "Estado de actividad eliminado correctamente."}
 
 
@@ -335,14 +335,14 @@ def eliminar_estado_actividad(id_estado: int, _=Depends(admin_or_super)):
 # ============================================================================
 @router.get("/perfiles-staff")
 def listar_perfiles_staff(_=Depends(admin_or_super)):
-    return call_refcursor("pkg_mant_perfiles_staff.listar")
+    return call_refcursor("BRRJ_pkg_mant_perfiles_staff.BRRJ_listar")
 
 
 @router.get("/perfiles-staff/{id_usuario}")
 def obtener_perfil_staff(id_usuario: int, current_user: dict = Depends(get_current_user)):
     if current_user["nombre_rol"] == "STAFF" and current_user["id_usuario"] != id_usuario:
         raise HTTPException(status_code=403, detail="Solo puedes consultar tu propio perfil.")
-    rows = call_refcursor("pkg_mant_perfiles_staff.obtener", [id_usuario])
+    rows = call_refcursor("BRRJ_pkg_mant_perfiles_staff.BRRJ_obtener", [id_usuario])
     if not rows:
         raise HTTPException(status_code=404, detail="Perfil Staff no encontrado.")
     return rows[0]
@@ -353,7 +353,7 @@ def crear_perfil_staff(payload: PerfilStaffIn, _=Depends(admin_or_super)):
     if not payload.id_usuario:
         raise HTTPException(status_code=400, detail="Debes indicar id_usuario para crear un perfil Staff.")
     call_proc_no_out(
-        "pkg_mant_perfiles_staff.crear",
+        "BRRJ_pkg_mant_perfiles_staff.BRRJ_crear",
         [
             payload.id_usuario,
             payload.id_carrera,
@@ -374,7 +374,7 @@ def actualizar_perfil_staff(
     if current_user["nombre_rol"] == "STAFF" and current_user["id_usuario"] != id_usuario:
         raise HTTPException(status_code=403, detail="Solo puedes actualizar tu propio perfil.")
     call_proc_no_out(
-        "pkg_mant_perfiles_staff.actualizar",
+        "BRRJ_pkg_mant_perfiles_staff.BRRJ_actualizar",
         [
             id_usuario,
             payload.id_carrera,
@@ -388,7 +388,7 @@ def actualizar_perfil_staff(
 
 @router.delete("/perfiles-staff/{id_usuario}")
 def eliminar_perfil_staff(id_usuario: int, _=Depends(admin_or_super)):
-    call_proc_no_out("pkg_mant_perfiles_staff.eliminar", [id_usuario])
+    call_proc_no_out("BRRJ_pkg_mant_perfiles_staff.BRRJ_eliminar", [id_usuario])
     return {"message": "Perfil Staff eliminado correctamente."}
 
 
@@ -401,12 +401,12 @@ def listar_disponibilidad(
     current_user: dict = Depends(get_current_user),
 ):
     target_user = current_user["id_usuario"] if current_user["nombre_rol"] == "STAFF" else id_usuario
-    return call_refcursor("pkg_mant_disp_staff.listar", [target_user])
+    return call_refcursor("BRRJ_pkg_mant_disp_staff.BRRJ_listar", [target_user])
 
 
 @router.get("/disponibilidad-staff/{id_disp}")
 def obtener_disponibilidad(id_disp: int, _=Depends(get_current_user)):
-    rows = call_refcursor("pkg_mant_disp_staff.obtener", [id_disp])
+    rows = call_refcursor("BRRJ_pkg_mant_disp_staff.BRRJ_obtener", [id_disp])
     if not rows:
         raise HTTPException(status_code=404, detail="Disponibilidad no encontrada.")
     return rows[0]
@@ -422,7 +422,7 @@ def crear_disponibilidad(payload: DisponibilidadIn, current_user: dict = Depends
     if not target_user:
         raise HTTPException(status_code=400, detail="Debes indicar el id_usuario del Staff.")
     new_id = call_proc_id_out(
-        "pkg_mant_disp_staff.crear",
+        "BRRJ_pkg_mant_disp_staff.BRRJ_crear",
         [target_user, payload.fecha_disponible, payload.bloque_horario, payload.estado_disp],
     )
     return {"id_disponibilidad": new_id, "message": "Disponibilidad registrada correctamente."}
@@ -435,14 +435,14 @@ def actualizar_disponibilidad(
     current_user: dict = Depends(get_current_user),
 ):
     if current_user["nombre_rol"] == "STAFF":
-        rows = call_refcursor("pkg_mant_disp_staff.obtener", [id_disp])
+        rows = call_refcursor("BRRJ_pkg_mant_disp_staff.BRRJ_obtener", [id_disp])
         if not rows:
             raise HTTPException(status_code=404, detail="Disponibilidad no encontrada.")
         if rows[0]["id_usuario"] != current_user["id_usuario"]:
             raise HTTPException(status_code=403, detail="Solo puedes editar tu propia disponibilidad.")
 
     call_proc_no_out(
-        "pkg_mant_disp_staff.actualizar",
+        "BRRJ_pkg_mant_disp_staff.BRRJ_actualizar",
         [id_disp, payload.fecha_disponible, payload.bloque_horario, payload.estado_disp],
     )
     return {"message": "Disponibilidad actualizada correctamente."}
@@ -451,13 +451,13 @@ def actualizar_disponibilidad(
 @router.delete("/disponibilidad-staff/{id_disp}")
 def eliminar_disponibilidad(id_disp: int, current_user: dict = Depends(get_current_user)):
     if current_user["nombre_rol"] == "STAFF":
-        rows = call_refcursor("pkg_mant_disp_staff.obtener", [id_disp])
+        rows = call_refcursor("BRRJ_pkg_mant_disp_staff.BRRJ_obtener", [id_disp])
         if not rows:
             raise HTTPException(status_code=404, detail="Disponibilidad no encontrada.")
         if rows[0]["id_usuario"] != current_user["id_usuario"]:
             raise HTTPException(status_code=403, detail="Solo puedes eliminar tu propia disponibilidad.")
 
-    call_proc_no_out("pkg_mant_disp_staff.eliminar", [id_disp])
+    call_proc_no_out("BRRJ_pkg_mant_disp_staff.BRRJ_eliminar", [id_disp])
     return {"message": "Disponibilidad eliminada correctamente."}
 
 
@@ -466,12 +466,12 @@ def eliminar_disponibilidad(id_disp: int, current_user: dict = Depends(get_curre
 # ============================================================================
 @router.get("/actividades")
 def listar_actividades(_=Depends(get_current_user)):
-    return call_refcursor("pkg_mant_actividades.listar")
+    return call_refcursor("BRRJ_pkg_mant_actividades.BRRJ_listar")
 
 
 @router.get("/actividades/{id_actividad}")
 def obtener_actividad(id_actividad: int, _=Depends(get_current_user)):
-    rows = call_refcursor("pkg_mant_actividades.obtener", [id_actividad])
+    rows = call_refcursor("BRRJ_pkg_mant_actividades.BRRJ_obtener", [id_actividad])
     if not rows:
         raise HTTPException(status_code=404, detail="Actividad no encontrada.")
     return rows[0]
@@ -480,7 +480,7 @@ def obtener_actividad(id_actividad: int, _=Depends(get_current_user)):
 @router.post("/actividades", status_code=status.HTTP_201_CREATED)
 def crear_actividad(payload: ActividadIn, current_user: dict = Depends(only_admin)):
     new_id = call_proc_id_out(
-        "pkg_mant_actividades.crear",
+        "BRRJ_pkg_mant_actividades.BRRJ_crear",
         [
             payload.titulo,
             payload.descripcion,
@@ -502,7 +502,7 @@ def crear_actividad(payload: ActividadIn, current_user: dict = Depends(only_admi
 @router.put("/actividades/{id_actividad}")
 def actualizar_actividad(id_actividad: int, payload: ActividadIn, _=Depends(only_admin)):
     call_proc_no_out(
-        "pkg_mant_actividades.actualizar",
+        "BRRJ_pkg_mant_actividades.BRRJ_actualizar",
         [
             id_actividad,
             payload.titulo,
@@ -523,5 +523,5 @@ def actualizar_actividad(id_actividad: int, payload: ActividadIn, _=Depends(only
 
 @router.delete("/actividades/{id_actividad}")
 def eliminar_actividad(id_actividad: int, _=Depends(only_admin)):
-    call_proc_no_out("pkg_mant_actividades.eliminar", [id_actividad])
+    call_proc_no_out("BRRJ_pkg_mant_actividades.BRRJ_eliminar", [id_actividad])
     return {"message": "Actividad eliminada correctamente."}

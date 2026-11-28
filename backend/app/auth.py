@@ -84,7 +84,7 @@ def get_current_user(
             detail="Token de sesión inválido.",
         )
 
-    rows = call_refcursor("pkg_gest_usuarios.obtener_por_id", [user_id])
+    rows = call_refcursor("BRRJ_pkg_gest_usuarios.BRRJ_obtener_por_id", [user_id])
     if not rows:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

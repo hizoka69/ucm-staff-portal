@@ -69,7 +69,7 @@ export default function Layout({ title, navItems, activeTab, onTabChange, childr
                 value={claveActual}
                 onChange={(e) => setClaveActual(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-blue-500"
-                placeholder="Ej. Ucm2026!"
+                placeholder="Ingresa tu contraseña actual"
               />
             </div>
             <div>

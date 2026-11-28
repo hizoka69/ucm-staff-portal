@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Database,
   Pencil,
   Plus,
@@ -10,6 +12,8 @@ import {
   X,
 } from 'lucide-react';
 import api, { getErrorMessage } from '../api/client';
+
+const PAGE_SIZE = 25;
 
 const CATALOGS = [
   {
@@ -128,7 +132,7 @@ const CATALOGS = [
     fields: [
       { name: 'id_usuario', label: 'Usuario Staff', type: 'select', source: 'staff', valueKey: 'id_usuario', labelKey: 'full_name', required: true, createOnly: true },
       { name: 'id_carrera', label: 'Carrera', type: 'select', source: 'carreras', valueKey: 'id_carrera', labelKey: 'nombre_carrera', required: true },
-      { name: 'generacion', label: 'Generación', type: 'number', defaultValue: 2025, required: true },
+      { name: 'generacion', label: 'Generación', type: 'number', min: 2015, max: 2035, defaultValue: 2025, required: true },
       { name: 'telefono', label: 'Teléfono', type: 'text', required: false },
       {
         name: 'estado_disponibilidad',
@@ -194,9 +198,9 @@ const CATALOGS = [
       { name: 'id_estado_actividad', label: 'Estado', type: 'select', source: 'estados', valueKey: 'id_estado_actividad', labelKey: 'nombre_estado', required: true },
       { name: 'fecha_actividad', label: 'Fecha Actividad', type: 'date', defaultValue: '2026-11-30', required: true },
       { name: 'hora_inicio', label: 'Hora Inicio (HH:MM)', type: 'time', defaultValue: '09:00', required: true },
-      { name: 'cantidad_horas', label: 'Cantidad de Horas', type: 'number', step: '0.5', defaultValue: 4, required: true },
-      { name: 'cupos_maximos', label: 'Cupos Máximos', type: 'number', defaultValue: 6, required: true },
-      { name: 'horas_cierre_postulacion', label: 'Cierre Postulación (hrs antes del inicio)', type: 'number', step: '1', defaultValue: 10, required: true },
+      { name: 'cantidad_horas', label: 'Cantidad de Horas', type: 'number', min: 0.5, max: 24, step: '0.5', defaultValue: 4, required: true },
+      { name: 'cupos_maximos', label: 'Cupos Máximos', type: 'number', min: 1, max: 500, defaultValue: 6, required: true },
+      { name: 'horas_cierre_postulacion', label: 'Cierre Postulación (hrs antes del inicio)', type: 'number', min: 0, max: 720, step: '1', defaultValue: 10, required: true },
     ],
   },
 ];
@@ -215,6 +219,7 @@ export default function MantenedoresView({ isSuperadmin = false }) {
     staff: [],
   });
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
@@ -280,6 +285,7 @@ export default function MantenedoresView({ isSuperadmin = false }) {
 
   useEffect(() => {
     setSearch('');
+    setPage(1);
     loadRows();
   }, [loadRows]);
 
@@ -288,6 +294,18 @@ export default function MantenedoresView({ isSuperadmin = false }) {
     if (!q) return rows;
     return rows.filter((r) => JSON.stringify(r).toLowerCase().includes(q));
   }, [rows, search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const startIdx = (currentPage - 1) * PAGE_SIZE;
+  const paginatedRows = useMemo(
+    () => filteredRows.slice(startIdx, startIdx + PAGE_SIZE),
+    [filteredRows, startIdx]
+  );
 
   const openCreateModal = () => {
     const initial = {};
@@ -387,7 +405,11 @@ export default function MantenedoresView({ isSuperadmin = false }) {
             Mantenedores del Sistema
           </h1>
           <p className="text-xs lg:text-sm text-slate-500">
-            Administración directa de tablas maestras conectadas a los 10 packages `pkg_mant_*` en Oracle 21c.
+            Administración directa de tablas maestras conectadas a los 10 packages{' '}
+            <code className="px-1.5 py-0.5 rounded bg-slate-100 text-[#0A1931] font-mono text-[11px]">
+              BRRJ_pkg_mant_*
+            </code>{' '}
+            en Oracle 21c.
           </p>
         </div>
         {!readOnly && (
@@ -477,7 +499,7 @@ export default function MantenedoresView({ isSuperadmin = false }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredRows.map((row) => (
+                {paginatedRows.map((row) => (
                   <tr key={row[catalog.idField]} className="hover:bg-[#F7FAFD]">
                     {catalog.columns.map((col) => {
                       const val = row[col.key];
@@ -525,6 +547,40 @@ export default function MantenedoresView({ isSuperadmin = false }) {
                 ))}
               </tbody>
             </table>
+            {filteredRows.length > PAGE_SIZE && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 mt-3 border-t border-slate-100 text-xs text-slate-500">
+                <span>
+                  Mostrando <strong className="text-[#0A1931]">{startIdx + 1}</strong>–
+                  <strong className="text-[#0A1931]">
+                    {Math.min(startIdx + PAGE_SIZE, filteredRows.length)}
+                  </strong>{' '}
+                  de <strong className="text-[#0A1931]">{filteredRows.length}</strong> registros
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:border-[#00A9E0] text-[#0A1931] font-semibold disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed transition"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    Anterior
+                  </button>
+                  <span className="px-2.5 py-1 rounded-lg bg-[#F4F8FB] font-bold text-[#0A1931]">
+                    Página {currentPage} de {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:border-[#00A9E0] text-[#0A1931] font-semibold disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed transition"
+                  >
+                    Siguiente
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -606,6 +662,8 @@ export default function MantenedoresView({ isSuperadmin = false }) {
                     ) : (
                       <input
                         type={f.type}
+                        min={f.min}
+                        max={f.max}
                         step={f.step}
                         required={f.required}
                         disabled={disabled}
