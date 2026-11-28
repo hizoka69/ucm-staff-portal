@@ -1,7 +1,7 @@
--- Sistema de Gestión de Staff Universitario - UCM (Esquema: UCM_STAFF_BD)
--- Prefijo de grupo: BRRJ_ (Blas, Rodrigo, Rosario, Joaquín)
--- Modelo Relacional Final en 3FN: 20 tablas, 24 relaciones (0 FK nulas), 18 secuencias, 13 triggers, 18 packages PL/SQL
--- Estándar U1/U2 INF324: LOCK TABLE IN ROW EXCLUSIVE MODE, COMMIT/ROLLBACK + EXCEPTION, %TYPE/%ROWTYPE, secuencias con MIN/MAXVALUE, cursores explícitos y funciones puras.
+-- Sistema de Gestión de Staff Universitario - UCM
+-- Prefijo de grupo: BRRJ_ (Blas Rojas , Rodrigo Jaña , Rosario Torres, Joaquín Hernandez)
+--Docente: Carlos Castro
+--Ramo: Base de Datos
 
 SET DEFINE OFF;
 SET SERVEROUTPUT ON;
